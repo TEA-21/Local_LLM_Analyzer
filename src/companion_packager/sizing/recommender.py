@@ -40,14 +40,28 @@ def rank_candidates(
     # Priority weighting profile
     priority = user_needs.priority.lower().strip()
     if priority in ("quality", "max_iq"):
-        w_task = 0.70
-        w_speed = 0.30
+        w_bench = 0.70
+        w_speed = 0.15
+        w_penalty = 0.15
     elif priority == "speed":
-        w_task = 0.30
-        w_speed = 0.70
+        w_bench = 0.25
+        w_speed = 0.60
+        w_penalty = 0.15
     else:  # balanced
-        w_task = 0.50
-        w_speed = 0.50
+        w_bench = 0.50
+        w_speed = 0.35
+        w_penalty = 0.15
+
+    target_device = hardware.backend_target.lower()
+    is_cpu = "cpu" in target_device
+
+    # TargetTokSec backend-aware throughput targets
+    if priority == "speed":
+        target_tok_s = 15.0 if is_cpu else 30.0
+    elif priority in ("max_iq", "quality"):
+        target_tok_s = 5.0 if is_cpu else 8.0
+    else:  # balanced
+        target_tok_s = 8.0 if is_cpu else 15.0
 
     scorecards: List[Scorecard] = []
 
@@ -77,9 +91,52 @@ def rank_candidates(
                 }
             )
 
-        task_fit = normalize_benchmarks(candidate.benchmarks, task=user_needs.task)
-        speed_score = min(max(evaluation.tokens_per_second / 50.0, 0.0), 1.0)
-        final_score = (w_task * task_fit + w_speed * speed_score) - evaluation.ram_penalty
+        repo = candidate.repo_id.lower()
+        is_code_model = "coder" in repo or "code" in repo or "ternaryquench" in repo
+        is_prose_model = ("llama" in repo or "mistral" in repo) and "llama-3.2-3b" not in repo
+        is_summary_model = "qwen2.5" in repo and "coder" not in repo
+        is_math_model = "r1" in repo or "math" in repo
+        is_desktop_model = ("general" in repo or "smollm" in repo or "llama-3.2-3b" in repo) and not (is_code_model or is_math_model)
+
+        bench_norm = normalize_benchmarks(
+            candidate.benchmarks,
+            task=user_needs.task,
+            is_coder_model=is_code_model,
+            is_math_model=is_math_model,
+            is_prose_model=is_prose_model,
+            is_summary_model=is_summary_model,
+        )
+
+        # Domain affinity bonus
+        task = user_needs.task.lower().strip() if user_needs.task else "general_desktop"
+        if task == "coding" and is_code_model:
+            domain_bonus = 0.10
+        elif task == "creative_writing" and is_prose_model:
+            domain_bonus = 0.10
+        elif task == "general_desktop" and is_desktop_model:
+            domain_bonus = 0.10
+        elif task == "reasoning_math" and is_math_model:
+            domain_bonus = 0.10
+        elif task == "summarization" and is_summary_model:
+            domain_bonus = 0.10
+        elif task == "custom" and is_desktop_model:
+            domain_bonus = 0.10
+        else:
+            domain_bonus = 0.0
+
+        # Colibri ternary engine affinity bonus on AVX-512 CPU for matching domain
+        is_ternary = (
+            candidate.quant_method.upper() in ("TERNARY", "BITNET", "COLIBRI")
+            or "ternaryquench" in repo
+        )
+        if is_ternary and hardware.has_avx512 and is_cpu and (domain_bonus > 0.0 or (is_code_model and task in ("coding", "custom"))):
+            engine_bonus = 0.15
+        else:
+            engine_bonus = 0.0
+
+        task_fit = min(1.0, bench_norm + domain_bonus + engine_bonus)
+        speed_score = min(1.0, max(0.0, evaluation.tokens_per_second / target_tok_s))
+        final_score = (w_bench * task_fit + w_speed * speed_score) - (w_penalty * evaluation.ram_penalty)
 
         proof_cit = generate_proof_citation(
             candidate=candidate,
@@ -99,8 +156,11 @@ def rank_candidates(
         )
         scorecards.append(scorecard)
 
-    # Sort descending by final_score
-    scorecards.sort(key=lambda s: s.final_score, reverse=True)
+    # Sort descending by final_score, breaking ties with parameter count
+    scorecards.sort(
+        key=lambda s: (s.final_score, s.candidate.param_count_billions),
+        reverse=True,
+    )
     for i, sc in enumerate(scorecards):
         sc.rank = i + 1
 

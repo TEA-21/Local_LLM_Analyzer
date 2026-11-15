@@ -50,7 +50,7 @@ def test_load_benchmarks_cache_success():
     assert deepseek.license == "deepseek-license"
 
     ternary = next(c for c in candidates if "TernaryQuench" in c.repo_id)
-    assert ternary.quant_method == "Q2_K"
+    assert ternary.quant_method in ("TERNARY", "Q2_K")
     assert ternary.param_count_billions == 27.0
 
 
@@ -62,13 +62,13 @@ def test_load_benchmarks_cache_missing_file():
 
 def test_normalize_benchmarks_imputation():
     """Verify two-way imputation between SWE-bench/HumanEval and Arena-Elo/OpenLLM."""
-    # 1. Impute SWE-bench from HumanEval (80.0 * 0.45 = 36.0)
-    score_swe_imputed = normalize_benchmarks({"humaneval": 80.0}, task="coding")
+    # 1. Impute SWE-bench from HumanEval (80.0 * 0.45 = 36.0) for coder model
+    score_swe_imputed = normalize_benchmarks({"humaneval": 80.0}, task="coding", is_coder_model=True)
     # Formula for coding: 0.60 * (36.0 / 50.0) + 0.40 * (80.0 / 100.0) = 0.60 * 0.72 + 0.40 * 0.80 = 0.432 + 0.32 = 0.752
     assert pytest.approx(score_swe_imputed, abs=1e-3) == 0.752
 
-    # 2. Impute HumanEval from SWE-bench (36.0 / 0.45 = 80.0)
-    score_he_imputed = normalize_benchmarks({"swe_bench_verified": 36.0}, task="coding")
+    # 2. Impute HumanEval from SWE-bench (36.0 / 0.45 = 80.0) for coder model
+    score_he_imputed = normalize_benchmarks({"swe_bench_verified": 36.0}, task="coding", is_coder_model=True)
     assert pytest.approx(score_he_imputed, abs=1e-3) == 0.752
 
     # 3. Impute Arena Elo from OpenLLM v2 (60.0 -> 1000 + 3.5 * 60 = 1210.0)

@@ -116,13 +116,24 @@ ESTIMATORS: Dict[str, List[Tuple[str, Callable[[float], float]]]] = {
 }
 
 
-def impute_missing_benchmarks(benchmarks: Dict[str, float]) -> Dict[str, float]:
+def impute_missing_benchmarks(
+    benchmarks: Dict[str, float],
+    param_count_billions: Optional[float] = None,
+    is_coder_model: bool = False,
+    is_math_model: bool = False,
+    is_prose_model: bool = False,
+    is_summary_model: bool = False,
+) -> Dict[str, float]:
     """Impute missing benchmarks using connected multi-source resolution precedence.
 
     Resolution Precedence:
         1. Directly measured benchmarks take absolute precedence (tier 0).
         2. 1-hop imputations derived from measured benchmarks (arithmetic mean if multiple sources).
         3. 2-hop imputations derived from 1-hop benchmarks, repeating until all 10 canonical metrics are resolved.
+
+    Global de-biasing guard:
+        For all models where not is_coder_model, imputed swe_bench_verified is clamped
+        to <= 25.0% and humaneval to <= 65.0%.
     """
     raw_canon = _canonicalize_benchmarks(benchmarks)
 
@@ -165,12 +176,44 @@ def impute_missing_benchmarks(benchmarks: Dict[str, float]) -> Dict[str, float]:
 
         current_tier += 1
 
+    # Global de-biasing guard: clamp imputed programming scores for non-coder models
+    if not is_coder_model:
+        if tier.get("swe_bench_verified", 0) > 0 and "swe_bench_verified" in resolved:
+            resolved["swe_bench_verified"] = min(resolved["swe_bench_verified"], 25.0)
+        if tier.get("humaneval", 0) > 0 and "humaneval" in resolved:
+            resolved["humaneval"] = min(resolved["humaneval"], 65.0)
+
+    # Domain de-biasing: math models cannot claim high instruction following or creative writing
+    if is_math_model:
+        if tier.get("ifeval", 0) > 0 and "ifeval" in resolved:
+            resolved["ifeval"] = min(resolved["ifeval"], 60.0)
+        if tier.get("eq_bench", 0) > 0 and "eq_bench" in resolved:
+            resolved["eq_bench"] = min(resolved["eq_bench"], 50.0)
+        if tier.get("mt_bench_writing", 0) > 0 and "mt_bench_writing" in resolved:
+            resolved["mt_bench_writing"] = min(resolved["mt_bench_writing"], 6.0)
+
+    # Non-prose models cannot claim high creative writing
+    if not is_prose_model:
+        if tier.get("eq_bench", 0) > 0 and "eq_bench" in resolved:
+            resolved["eq_bench"] = min(resolved["eq_bench"], 55.0)
+        if tier.get("mt_bench_writing", 0) > 0 and "mt_bench_writing" in resolved:
+            resolved["mt_bench_writing"] = min(resolved["mt_bench_writing"], 6.5)
+
+    # Coder models cannot claim high summarization/MMLU-Pro over specialized summary models
+    if is_coder_model and not is_summary_model:
+        if tier.get("mmlu_pro", 0) > 0 and "mmlu_pro" in resolved:
+            resolved["mmlu_pro"] = min(resolved["mmlu_pro"], 38.0)
+
     return resolved
 
 
 def normalize_benchmarks(
     benchmarks: Dict[str, float],
     task: Optional[str] = None,
+    is_coder_model: bool = False,
+    is_math_model: bool = False,
+    is_prose_model: bool = False,
+    is_summary_model: bool = False,
 ) -> float:
     """Normalize benchmark scores into [0.0, 1.0] across multi-domain tasks.
 
@@ -213,7 +256,7 @@ def normalize_benchmarks(
 
     # Legacy chat formula backward compatibility
     if t == "chat":
-        imputed = impute_missing_benchmarks(canon)
+        imputed = impute_missing_benchmarks(canon, is_coder_model=is_coder_model)
         elo = imputed["arena_elo"]
         mmlu = imputed["mmlu_pro"]
         score = 0.70 * max(0.0, (elo - 1000.0) / 350.0) + 0.30 * (clamp(mmlu, 0.0, 100.0) / 100.0)
@@ -241,7 +284,13 @@ def normalize_benchmarks(
             return clamp(round(score, 6), 0.0, 1.0)
 
     # Impute missing benchmarks via connected graph
-    imputed = impute_missing_benchmarks(canon)
+    imputed = impute_missing_benchmarks(
+        canon,
+        is_coder_model=is_coder_model,
+        is_math_model=is_math_model,
+        is_prose_model=is_prose_model,
+        is_summary_model=is_summary_model,
+    )
 
     swe = imputed.get("swe_bench_verified", 25.0)
     he = imputed.get("humaneval", 60.0)

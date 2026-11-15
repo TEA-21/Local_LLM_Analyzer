@@ -76,11 +76,16 @@ def test_agent_companion_env_keys_and_values(tmp_path, mock_hardware, mock_model
 
     assert 'AGENT_COMPANION_MODEL_PATH="models/qwen2.5-coder-7b-instruct-q4_k_m.gguf"' in env_text
     assert 'AGENT_COMPANION_DEVICE="cuda"' in env_text
+    assert 'AGENT_COMPANION_BACKEND="cuda"' in env_text
+    assert "AGENT_COMPANION_CONTEXT_LENGTH=32768" in env_text
     assert 'AGENT_COMPANION_CONTEXT_WINDOW="32768"' in env_text
     assert 'AGENT_COMPANION_SSE_HOST="0.0.0.0"' in env_text
     assert 'AGENT_COMPANION_SSE_PORT="9000"' in env_text
     assert 'AGENT_COMPANION_THREADS="16"' in env_text
     assert 'AGENT_COMPANION_QUANT="Q4_K_M"' in env_text
+    assert "AGENT_COMPANION_MAX_RAM_MB=5200.0" in env_text
+    assert "AGENT_COMPANION_RAM_CEILING_MB=6144.0" in env_text
+    assert "AGENT_COMPANION_AIRGAP_ENFORCED=true" in env_text
 
 
 def test_start_companion_bat_syntax(tmp_path, mock_hardware, mock_model):
@@ -197,3 +202,75 @@ def test_create_desktop_shortcut_fail_soft(tmp_path):
     result = create_desktop_shortcut(tmp_path)
     # Fail-soft check: must return None or a Path, never raise
     assert result is None or isinstance(result, Path)
+
+
+def test_agent_companion_env_backends_and_context_lengths(tmp_path):
+    """Verify backend and context length selection across ternary 27B CPU, 7B CPU, and GPU."""
+    cpu_hw = HardwareProfile(
+        os_name="windows",
+        cpu_brand="Intel Core i7-1165G7",
+        cpu_arch="x86_64",
+        physical_cores=4,
+        logical_cores=8,
+        has_avx512=True,
+        has_avx2=True,
+        has_neon=False,
+        ram_total_mb=16384.0,
+        ram_avail_mb=12000.0,
+        disk_free_gb=100.0,
+        gpus=[],
+        bandwidth_gb_s=30.0,
+        backend_target="cpu",
+    )
+
+    ternary_27b = CandidateModel(
+        repo_id="penkia/TernaryQuench-Qwen3.8-27B-GGUF",
+        filename="TernaryQuench-Qwen3.8-27B-Q2_K.gguf",
+        quant_method="TERNARY",
+        param_count_billions=27.0,
+        size_mb=4796.0,
+        context_window=32768,
+        arch_type="dense",
+    )
+
+    qwen_7b = CandidateModel(
+        repo_id="Qwen/Qwen2.5-Coder-7B-Instruct-GGUF",
+        filename="qwen2.5-coder-7b-instruct-q4_k_m.gguf",
+        quant_method="Q4_K_M",
+        param_count_billions=7.61,
+        size_mb=4680.0,
+        context_window=32768,
+        arch_type="dense",
+    )
+
+    # 1. Ternary 27B CPU: backend="colibri_ternary", context_length=4096
+    bundle_ternary = tmp_path / "ternary"
+    paths_ternary = inject_agent_companion_config(bundle_ternary, ternary_27b, cpu_hw)
+    env_ternary = paths_ternary["env"].read_text(encoding="utf-8")
+    assert 'AGENT_COMPANION_BACKEND="colibri_ternary"' in env_ternary
+    assert "AGENT_COMPANION_CONTEXT_LENGTH=4096" in env_ternary
+    assert "AGENT_COMPANION_MAX_RAM_MB=5200.0" in env_ternary
+    assert "AGENT_COMPANION_RAM_CEILING_MB=6144.0" in env_ternary
+    assert "AGENT_COMPANION_AIRGAP_ENFORCED=true" in env_ternary
+
+    # 2. Qwen 7B CPU: backend="cpu_llama", context_length=8192
+    bundle_7b = tmp_path / "7b"
+    paths_7b = inject_agent_companion_config(bundle_7b, qwen_7b, cpu_hw)
+    env_7b = paths_7b["env"].read_text(encoding="utf-8")
+    assert 'AGENT_COMPANION_BACKEND="cpu_llama"' in env_7b
+    assert "AGENT_COMPANION_CONTEXT_LENGTH=8192" in env_7b
+    assert "AGENT_COMPANION_MAX_RAM_MB=5200.0" in env_7b
+    assert "AGENT_COMPANION_RAM_CEILING_MB=6144.0" in env_7b
+
+
+def test_start_companion_py_memory_guard_check(tmp_path, mock_hardware, mock_model):
+    """Verify start_companion.py contains HardwareProfiler RAM_CEILING_MB <= 6144.0 assertion."""
+    paths = inject_agent_companion_config(
+        bundle_dir=tmp_path,
+        selected_model=mock_model,
+        hardware=mock_hardware,
+    )
+    py_text = paths["py"].read_text(encoding="utf-8")
+    assert "from agent_tooling.hardware_profiler.memory_guard import HardwareProfiler" in py_text
+    assert "assert profiler.RAM_CEILING_MB <= 6144.0" in py_text
+    assert "os.chdir(install_root)" in py_text

@@ -1,7 +1,7 @@
 """Pydantic v2 domain schemas for companion-packager."""
 
-from typing import Dict, List, Literal, Optional
-from pydantic import BaseModel, Field
+from typing import Any, Dict, List, Literal, Optional
+from pydantic import BaseModel, Field, model_validator
 
 
 class GPUInfo(BaseModel):
@@ -80,6 +80,24 @@ class CandidateModel(BaseModel):
     citation_doi: str = ""
     paper_url: str = ""
     license: str = "apache-2.0"
+
+    @model_validator(mode="before")
+    @classmethod
+    def _map_layer_aliases(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            if "layers" in data and "num_layers" not in data:
+                data["num_layers"] = data["layers"]
+            if "kv_heads" in data and "num_kv_heads" not in data:
+                data["num_kv_heads"] = data["kv_heads"]
+        return data
+
+    @property
+    def layers(self) -> int:
+        return self.num_layers
+
+    @property
+    def kv_heads(self) -> int:
+        return self.num_kv_heads
 
 
 class SizingEvaluation(BaseModel):

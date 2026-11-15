@@ -11,5 +11,8 @@ RECOMMENDATIONS.md
 *.part
 *.zip
 *.run
+*.png
+gemini_*
+scenario_results.json
 
 

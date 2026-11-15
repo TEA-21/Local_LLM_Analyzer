@@ -21,6 +21,7 @@ from companion_packager.research.citations import (
 )
 from companion_packager.schemas import (
     CandidateModel,
+    GPUInfo,
     HardwareProfile,
     ProofCitation,
     Scorecard,
@@ -86,9 +87,9 @@ def test_ask_user_needs_multi_domain_and_custom():
 
 def test_imputation_island_bridge_coding_to_desktop():
     """Verify bidirectional bridge: Island A (SWE/HumanEval) propagates to Island B (IFEval/Arena Elo)."""
-    # Start with only HumanEval (Island A)
+    # Start with only HumanEval (Island A) for coder model
     initial = {"humaneval": 88.0}
-    imputed = impute_missing_benchmarks(initial)
+    imputed = impute_missing_benchmarks(initial, is_coder_model=True)
 
     # Directly measured
     assert imputed["humaneval"] == 88.0
@@ -303,9 +304,8 @@ def test_hardware_ceiling_cpu_gating():
     filtered_scorecards = rank_candidates(candidates, cpu_hw, needs, hard_exclude=True)
     for sc in filtered_scorecards:
         assert sc.evaluation.weights_mb <= 6144.0
-        assert sc.candidate.param_count_billions < 14.0
 
-    # Models exceeding 6144MB (Qwen 14B: 9200MB, Qwen 32B: 19800MB, DeepSeek V2-Lite: 9600MB, Ternary: 10360MB) excluded
+    # Models exceeding 6144MB (Qwen 14B: 9200MB, Qwen 32B: 19800MB, DeepSeek V2-Lite: 9600MB) excluded
     filtered_repos = {sc.candidate.repo_id for sc in filtered_scorecards}
     assert "Qwen/Qwen2.5-Coder-14B-Instruct-GGUF" not in filtered_repos
     assert "Qwen/Qwen2.5-Coder-32B-Instruct-GGUF" not in filtered_repos
@@ -316,7 +316,7 @@ def test_hardware_ceiling_cpu_gating():
     v2_lite_sc = next(sc for sc in all_scorecards if "DeepSeek-Coder-V2-Lite" in sc.candidate.repo_id)
     assert v2_lite_sc.evaluation.fits is False
     assert v2_lite_sc.evaluation.ram_penalty == 1000.0
-    assert v2_lite_sc.final_score < -900.0
+    assert v2_lite_sc.final_score < -100.0
 
 
 # ==============================================================================
@@ -346,3 +346,140 @@ def test_estimate_tokens_per_second_clamping_and_bounds():
     )
     expected_sparse_tok_s = (300.0 * 2.0) / (9200.0 / 1024.0)
     assert pytest.approx(tok_s_max_sparsity, rel=1e-3) == expected_sparse_tok_s
+
+
+# ==============================================================================
+# 7. Non-Coder De-biasing Guard & Domain Affinity
+# ==============================================================================
+
+def test_debiasing_non_coder_guard():
+    """Verify that models without is_coder_model clamp imputed SWE <= 25.0 and HumanEval <= 65.0."""
+    math_bench = {"gsm8k": 92.8, "math": 79.8}
+
+    # Non-coder model: imputed programming benchmarks must be de-biased
+    non_coder_imputed = impute_missing_benchmarks(math_bench, is_coder_model=False)
+    assert non_coder_imputed["swe_bench_verified"] <= 25.0
+    assert non_coder_imputed["humaneval"] <= 65.0
+
+    # Coder model: imputed programming benchmarks retain full derivation
+    coder_imputed = impute_missing_benchmarks(math_bench, is_coder_model=True)
+    assert coder_imputed["humaneval"] > 65.0
+    assert coder_imputed["swe_bench_verified"] > 25.0
+
+
+def test_domain_affinity_bonus_and_engine_bonus():
+    """Verify domain affinity bonuses across all tasks and Colibri AVX-512 engine bonus."""
+    hw_cpu_avx512 = HardwareProfile(
+        os_name="windows",
+        cpu_brand="Intel Core i7-1165G7",
+        cpu_arch="x86_64",
+        physical_cores=4,
+        logical_cores=8,
+        has_avx512=True,
+        has_avx2=True,
+        has_neon=False,
+        ram_total_mb=16384.0,
+        ram_avail_mb=12000.0,
+        disk_free_gb=100.0,
+        gpus=[],
+        bandwidth_gb_s=30.0,
+        backend_target="cpu",
+    )
+
+    all_cands = load_benchmarks_cache()
+
+    # 1. Coding task: Coder model gets domain bonus
+    scs_coding = rank_candidates(all_cands, hw_cpu_avx512, UserNeeds(task="coding", priority="balanced"))
+    cand_qwen_coder = next(s for s in scs_coding if "Qwen2.5-Coder-7B" in s.candidate.repo_id)
+    # BenchNorm without bonus ~0.8312, with bonus 0.9312
+    assert cand_qwen_coder.task_fit_score > 0.90
+
+    # Ternary on AVX-512 CPU gets +0.10 domain bonus AND +0.15 engine bonus
+    cand_ternary = next(s for s in scs_coding if "TernaryQuench" in s.candidate.repo_id)
+    assert cand_ternary.task_fit_score == 1.0
+
+    # 2. Creative writing task: Prose model (Llama-3.1 8B) gets domain bonus
+    scs_creative = rank_candidates(all_cands, hw_cpu_avx512, UserNeeds(task="creative_writing", priority="balanced"))
+    cand_llama_prose = next(s for s in scs_creative if "Meta-Llama-3.1-8B" in s.candidate.repo_id)
+    assert cand_llama_prose.task_fit_score > 0.85
+
+    # 3. General desktop task: Desktop model (Llama-3.2 3B) gets domain bonus (0.6804 + 0.10 = 0.7804)
+    scs_desktop = rank_candidates(all_cands, hw_cpu_avx512, UserNeeds(task="general_desktop", priority="balanced"))
+    cand_llama_desktop = next(s for s in scs_desktop if "Llama-3.2-3B" in s.candidate.repo_id)
+    assert cand_llama_desktop.task_fit_score > 0.75
+
+    # 4. Reasoning Math task: Math model (DeepSeek-R1 7B) gets domain bonus
+    scs_math = rank_candidates(all_cands, hw_cpu_avx512, UserNeeds(task="reasoning_math", priority="balanced"))
+    cand_r1 = next(s for s in scs_math if "DeepSeek-R1-Distill-Qwen-7B" in s.candidate.repo_id)
+    assert cand_r1.task_fit_score > 0.90
+
+    # 5. Summarization task: Summary model (Qwen2.5-7B) gets domain bonus (0.6300 + 0.10 = 0.7300)
+    scs_sum = rank_candidates(all_cands, hw_cpu_avx512, UserNeeds(task="summarization", priority="balanced"))
+    cand_qwen_sum = next(s for s in scs_sum if "Qwen2.5-7B-Instruct" in s.candidate.repo_id)
+    assert cand_qwen_sum.task_fit_score > 0.70
+
+
+def test_backend_aware_target_tok_sec():
+    """Verify backend-aware TargetTokSec across CPU and GPU hardware for balanced/speed/max_iq."""
+    hw_cpu = HardwareProfile(
+        os_name="windows",
+        cpu_brand="Intel",
+        cpu_arch="x86_64",
+        physical_cores=4,
+        logical_cores=8,
+        has_avx512=False,
+        has_avx2=True,
+        has_neon=False,
+        ram_total_mb=16384.0,
+        ram_avail_mb=12000.0,
+        disk_free_gb=100.0,
+        gpus=[],
+        bandwidth_gb_s=30.0,
+        backend_target="cpu",
+    )
+    hw_gpu = HardwareProfile(
+        os_name="windows",
+        cpu_brand="AMD",
+        cpu_arch="x86_64",
+        physical_cores=8,
+        logical_cores=16,
+        has_avx512=False,
+        has_avx2=True,
+        has_neon=False,
+        ram_total_mb=32768.0,
+        ram_avail_mb=24000.0,
+        disk_free_gb=100.0,
+        gpus=[GPUInfo(index=0, name="RTX 4070", vendor="nvidia", vram_total_mb=12288.0, vram_free_mb=11000.0)],
+        bandwidth_gb_s=504.0,
+        backend_target="cuda",
+    )
+
+    model = CandidateModel(
+        repo_id="test/speed-model",
+        filename="model.gguf",
+        quant_method="Q4_K_M",
+        param_count_billions=7.0,
+        size_mb=4000.0,
+        context_window=16384,
+        num_layers=28,
+        num_kv_heads=4,
+        head_dim=128,
+    )
+
+    # CPU balanced target: 8.0 tok/s. Model speed ~ 30.0 / (4000/1024) = 7.68 tok/s.
+    sc_cpu_bal = rank_candidates([model], hw_cpu, UserNeeds(task="coding", priority="balanced"))[0]
+    expected_cpu_bal_latency = min(1.0, sc_cpu_bal.evaluation.tokens_per_second / 8.0)
+    assert pytest.approx(sc_cpu_bal.latency_score, abs=1e-3) == expected_cpu_bal_latency
+
+    # GPU balanced target: 15.0 tok/s. Model speed ~ 504.0 / (4000/1024) = 129.0 tok/s >= 15.0 -> 1.0.
+    sc_gpu_bal = rank_candidates([model], hw_gpu, UserNeeds(task="coding", priority="balanced"))[0]
+    assert sc_gpu_bal.latency_score == 1.0
+
+    # CPU speed target: 15.0 tok/s. Latency ~ 7.68 / 15.0 ~ 0.512.
+    sc_cpu_speed = rank_candidates([model], hw_cpu, UserNeeds(task="coding", priority="speed"))[0]
+    expected_cpu_speed_latency = min(1.0, sc_cpu_speed.evaluation.tokens_per_second / 15.0)
+    assert pytest.approx(sc_cpu_speed.latency_score, abs=1e-3) == expected_cpu_speed_latency
+
+    # CPU quality target: 5.0 tok/s. Latency ~ 7.68 / 5.0 >= 1.0 -> 1.0.
+    sc_cpu_quality = rank_candidates([model], hw_cpu, UserNeeds(task="coding", priority="quality"))[0]
+    assert sc_cpu_quality.latency_score == 1.0

@@ -104,8 +104,12 @@ def test_budget_ceiling_cpu_enforces_6144mb_ceiling():
         bandwidth_gb_s=25.0,
         backend_target="cpu",
     )
-    ceiling_low = calculate_budget_ceiling_mb(low_ram_cpu)
+    ceiling_low = calculate_budget_ceiling_mb(low_ram_cpu, clean_state=False)
     assert ceiling_low == 4800.0
+
+    # With clean_state=True (default), 8GB host uses 8192 * 0.70 = 5734.4 MB
+    ceiling_low_clean = calculate_budget_ceiling_mb(low_ram_cpu, clean_state=True)
+    assert ceiling_low_clean == 5734.4
 
 
 def test_budget_ceiling_four_tiers():
@@ -130,8 +134,11 @@ def test_budget_ceiling_four_tiers():
         disk_free_gb=50.0,
         gpus=[],
     )
-    # min(7000 * 0.80 = 5600.0, 6144.0) = 5600.0 MB
-    assert calculate_budget_ceiling_mb(t1_hw) == 5600.0
+    # Clean-state False: min(7000 * 0.80 = 5600.0, 6144.0) = 5600.0 MB
+    assert calculate_budget_ceiling_mb(t1_hw, clean_state=False) == 5600.0
+    # Clean-state True (default): min(8192 * 0.70 = 5734.4, 6144.0) = 5734.4 MB
+    assert calculate_budget_ceiling_mb(t1_hw, clean_state=True) == 5734.4
+    assert calculate_budget_ceiling_mb(t1_hw) == 5734.4
 
     # Tier 2: Sub-6GB AVX-512 laptop (ram_avail = 5000 MB, AVX-512, no GPU)
     t2_hw = HardwareProfile(
@@ -148,8 +155,10 @@ def test_budget_ceiling_four_tiers():
         disk_free_gb=50.0,
         gpus=[],
     )
-    # min(5000 * 0.80 = 4000.0, 6144.0) = 4000.0 MB
-    assert calculate_budget_ceiling_mb(t2_hw) == 4000.0
+    # Clean-state False: min(5000 * 0.80 = 4000.0, 6144.0) = 4000.0 MB
+    assert calculate_budget_ceiling_mb(t2_hw, clean_state=False) == 4000.0
+    # Clean-state True: min(8192 * 0.70 = 5734.4, 6144.0) = 5734.4 MB
+    assert calculate_budget_ceiling_mb(t2_hw, clean_state=True) == 5734.4
 
     # Tier 3: 8GB GPU (RTX 3070 Mobile 8192 MB VRAM, free VRAM = 0 fallback)
     t3_hw = HardwareProfile(
@@ -320,7 +329,7 @@ def test_evaluate_sizing_fits_and_rejects():
         num_kv_heads=4,
         head_dim=128,
     )
-    eval_small = evaluate_sizing(cand_small, laptop_hw, context_tokens=16384)
+    eval_small = evaluate_sizing(cand_small, laptop_hw, context_tokens=16384, clean_state=False)
     assert eval_small.fits is True
     assert eval_small.weights_mb == 2050.0
     assert eval_small.overhead_mb == CPU_OVERHEAD_MB
@@ -340,7 +349,7 @@ def test_evaluate_sizing_fits_and_rejects():
         num_kv_heads=8,
         head_dim=128,
     )
-    eval_large = evaluate_sizing(cand_large, laptop_hw, context_tokens=16384)
+    eval_large = evaluate_sizing(cand_large, laptop_hw, context_tokens=16384, clean_state=False)
     assert eval_large.fits is False
     assert eval_large.total_ram_mb > 4000.0
     assert "exceeds budget ceiling" in eval_large.rejection_reason
@@ -379,7 +388,7 @@ def test_evaluate_sizing_kv_cache_q8_fallback():
         num_kv_heads=4,
         head_dim=128,
     )
-    eval_res = evaluate_sizing(cand, hw, context_tokens=16384)
+    eval_res = evaluate_sizing(cand, hw, context_tokens=16384, clean_state=False)
     assert eval_res.fits is True
     assert eval_res.kv_cache_mb == 448.0
     assert eval_res.total_ram_mb == 2500.0 + 448.0 + 200.0

@@ -1,9 +1,11 @@
 # Agent Companion Packager - Progress & Tracking
 
 ## Current Active Phase & Status
-- **Current Phase:** Phase 8 Complete: Multi-Domain Intent Query Planner & 3-Pillar Proof Citation Engine
-- **Status:** All Phase 8 components implemented, integrated, and verified with 136/136 passing tests. Wheel build successful.
-- **argon_audit_runs:** 1
+- **Current Phase:** Phase 9: Agent Companion Colibri & SpikeBrain Harmonization, Clean-State Invariants, and Domain Affinity
+- **Subtask Status:** Phase 9 (Subtasks 1 & 2) 100% COMPLETE.
+- **argon_audit_runs:** 2
+- **Argon Spec Audit Verdict:** VERDICT: PASS (All 6 rubric items and mathematical derivations verified).
+- **Goldfish Spec Audit Verdict:** VERDICT: PASS (Zero unstated assumptions, zero ambiguities).
 
 ---
 
@@ -63,64 +65,78 @@
 12. **CLI Multi-Domain Commands (`src/companion_packager/cli.py`):**
     - Updated `--task` with choices across all 6 domains.
     - Added `--custom-intent` option to `analyze` and `recommend` commands.
+13. **Phase 9 Subtask 1: Sizing Formulas & Cache Harmonization (`formulas.py`, `benchmarks_cache.json`, `schemas.py`):**
+    - Verified & updated `penkia/TernaryQuench-Qwen3.8-27B-GGUF` in `benchmarks_cache.json`: `quant_method="TERNARY"`, `size_mb=4796.0`, `layers=64`, `kv_heads=8`, `head_dim=128`, `swe_bench_verified=49.2`, `humaneval=91.5`, `openllm_v2=74.0`, `arena_elo=1280.0`.
+    - Harmonized architecture fields across `Qwen2.5-Coder-7B` (28/4/128), `Llama-3.1-8B` (32/8/128), `Mistral-7B` (32/8/128), `Llama-3.2-3B` (28/8/64), `DeepSeek-R1-Distill-7B` (28/4/128), and `Qwen2.5-7B` (28/4/128). Added alias normalization in `schemas.py` (`layers` <-> `num_layers`, `kv_heads` <-> `num_kv_heads`).
+    - Implemented Clean-State Host RAM ceiling calculation: $M_{\text{budget\_ceiling}} = \min(M_{\text{ram\_total}} \times 0.70, 6144.0\text{ MB})$ (16GB host: 6144 MB, 8GB host: 5734.4 MB), falling back to $\min(M_{\text{ram\_avail}} \times 0.80, 6144.0\text{ MB})$ when `clean_state=False`.
+    - Added ternary candidate intercept in `evaluate_sizing()`: overrides weights to Colibri 1.49 bits ($4795.83\text{ MB} \le 4800\text{ MB}$), sets runtime overhead strictly to $400.0\text{ MB}$, applies SpikeBrain AVX-512 boost ($S = 0.60$, yielding $10.0\text{ tok/s}$ on 30 GB/s bus), and retains dense active weight ratio `1.0`.
+    - CPU Context Window Clamping: clamped to $C = 4,096$ for $\ge 20\text{B}$ models (Q8_0 KV cache $512.0\text{ MB}$, total $5707.8\text{ MB} \le 6144\text{ MB}$) and $C = 8,192$ for $\ge 6.5\text{B}$ models on CPU ($M_{\text{kv\_cache}} \le 512.0\text{ MB}$).
+    - Q8_0 KV Cache Fallback: triggered automatically when $M_{\text{runtime\_fp16}} > 0.80 \times M_{\text{budget\_ceiling}}$.
+    - Ternary RAM penalty exemption for $M_{\text{runtime}} \le 5750.0\text{ MB}$.
+14. **Phase 9 Subtask 2: De-Biasing, Domain Affinity, Target Tok/s & Configurator Contract (`benchmarks.py`, `recommender.py`, `configurator.py`):**
+    - `research/benchmarks.py`:
+      - `impute_missing_benchmarks`: Added signature `(benchmarks, param_count_billions=None, is_coder_model=False)`. Implemented global de-biasing guard clamping imputed `swe_bench_verified <= 25.0%` and `humaneval <= 65.0%` for `not is_coder_model`. Directly measured metrics preserved intact.
+      - `normalize_benchmarks`: Added signature `(benchmarks, task=None, is_coder_model=False)`, forwarding `is_coder_model` directly to `impute_missing_benchmarks`.
+    - `sizing/recommender.py`:
+      - Integrated domain classification rules: `is_code_model`, `is_prose_model`, `is_summary_model`, `is_math_model`, `is_desktop_model`.
+      - Forwarded `is_coder_model=is_code_model` into `normalize_benchmarks`.
+      - Calculated `task_fit`: Added `+0.10` domain affinity bonus when candidate matches user task, and `+0.15` Colibri ternary engine bonus for ternary models on AVX-512 CPU.
+      - Backend-aware `TargetTokSec`:
+        - CPU: balanced=8.0, speed=15.0, quality=5.0 tok/s.
+        - GPU: balanced=15.0, speed=30.0, quality=8.0 tok/s.
+      - Harmonized weight profiles: balanced (0.50/0.35/0.15), speed (0.25/0.60/0.15), max_iq (0.70/0.15/0.15).
+      - Harmonized scoring equation: `(w_bench * task_fit + w_speed * speed_score) - (w_penalty * evaluation.ram_penalty)` with tie-breaking by parameter count.
+    - `installer/configurator.py`:
+      - Generated `agent_companion.env` populated with `AGENT_COMPANION_BACKEND` (`colibri_ternary`, `cpu_llama`, or `cuda`), `AGENT_COMPANION_CONTEXT_LENGTH` (4096 for 27B CPU, 8192 for 7B CPU, 32768 for GPU), `AGENT_COMPANION_MAX_RAM_MB=5200.0`, `AGENT_COMPANION_RAM_CEILING_MB=6144.0`, and `AGENT_COMPANION_AIRGAP_ENFORCED=true`.
+      - Launcher `start_companion.py` includes `HardwareProfiler.RAM_CEILING_MB <= 6144.0` guard assertion for CPU backend.
 
 ---
 
 ## Files Created, Modified, or Removed
 - **Modified:**
   - `src/companion_packager/schemas.py`
-  - `src/companion_packager/models/schemas.py`
   - `src/companion_packager/sizing/formulas.py`
-  - `src/companion_packager/research/benchmarks_cache.json`
   - `src/companion_packager/research/benchmarks.py`
-  - `src/companion_packager/research/__init__.py`
-  - `src/companion_packager/interview/questionnaire.py`
-  - `src/companion_packager/research/hf_client.py`
-  - `src/companion_packager/research/citations.py`
+  - `src/companion_packager/research/benchmarks_cache.json`
   - `src/companion_packager/sizing/recommender.py`
-  - `src/companion_packager/cli.py`
-  - `tests/test_hf_discovery.py`
+  - `src/companion_packager/installer/configurator.py`
+  - `tests/test_sizing_formulas.py`
+  - `tests/test_formulas.py`
   - `tests/test_research.py`
-- **Created:**
   - `tests/test_domain_proof.py`
+  - `tests/test_recommender.py`
+  - `tests/test_configurator.py`
 
 ---
 
 ## Test Results & Verification Logs
-- `pytest -v tests/test_domain_proof.py`: 12/12 PASSED in 0.12s
-  - `test_parse_custom_intent_languages_and_symbols`: PASSED
-  - `test_parse_custom_intent_rag_and_stopwords`: PASSED
-  - `test_parse_custom_intent_empty_and_fallback`: PASSED
-  - `test_ask_user_needs_multi_domain_and_custom`: PASSED
-  - `test_imputation_island_bridge_coding_to_desktop`: PASSED
-  - `test_imputation_island_bridge_desktop_to_coding`: PASSED
-  - `test_imputation_precedence_and_multi_source_mean`: PASSED
-  - `test_calculate_elo_norm_bounds`: PASSED
-  - `test_domain_benchnorm_formulas`: PASSED
-  - `test_proof_citation_generation_and_provenance`: PASSED
-  - `test_hardware_ceiling_cpu_gating`: PASSED
-  - `test_estimate_tokens_per_second_clamping_and_bounds`: PASSED
-- `pytest -v tests/test_research.py`: 10/10 PASSED
-- `pytest -v tests/test_recommender.py`: 11/11 PASSED
-- `pytest -v tests/test_hf_discovery.py`: 9/9 PASSED
-- Full Test Suite: `pytest -v tests/` -> 136/136 passed in 28.54s (100% pass rate).
-- Wheel Build: `python -m build --wheel` -> `companion_packager-0.1.0-py3-none-any.whl` produced cleanly in `dist/`.
+- `pytest -v tests/test_sizing_formulas.py`: 15/15 PASSED in 0.05s
+- `pytest -v tests/test_formulas.py`: 10/10 PASSED in 0.04s
+- `pytest -v tests/test_research.py`: 10/10 PASSED in 0.56s
+- `pytest -v tests/test_domain_proof.py`: 15/15 PASSED in 0.12s
+- `pytest -v tests/test_recommender.py`: 11/11 PASSED in 0.13s
+- `pytest -v tests/test_configurator.py`: 11/11 PASSED in 1.30s
+- **Full Test Suite (`pytest`):** 146/146 PASSED in 25.15s (100% pass rate, zero regressions)
 
 ---
 
 ## Orchestrator Handoff Context
-- Phase 8 Multi-Domain Intent Query Planner & 3-Pillar Proof Citation Engine is fully implemented and tested.
-- All 136 automated tests across 15 test suites are green.
-- Airgapped cache contains 15 verified candidate models covering all 5 core workload domains.
-- Distributable wheel is compiled in `dist/`.
+- Subtasks 1 and 2 of Phase 9 are 100% complete and fully verified:
+  - Global benchmark de-biasing active: Non-coder models strictly bounded to SWE <= 25.0% and HumanEval <= 65.0% during imputation.
+  - Domain classification & affinity bonuses verified across all 6 domains (+0.10 domain bonus, +0.15 Colibri AVX-512 CPU bonus).
+  - Backend-aware TargetTokSec operational across CPU (8.0/15.0/5.0) and GPU (15.0/30.0/8.0).
+  - Runtime environment configurator injector updated to emit `AGENT_COMPANION_BACKEND`, `AGENT_COMPANION_CONTEXT_LENGTH` (4096 / 8192 / 32768), `AGENT_COMPANION_MAX_RAM_MB=5200.0`, `AGENT_COMPANION_RAM_CEILING_MB=6144.0`, and `AGENT_COMPANION_AIRGAP_ENFORCED=true`.
+  - Python runtime launcher template enforces `HardwareProfiler.RAM_CEILING_MB <= 6144.0` assertion on CPU backends.
+  - Zero regressions across the entire 146-test suite.
 
 ---
 
 ## Active Gotchas & Failed Paths
-- In `test_get_model_candidates_deduplication`, the previous hardcoded assertion checked for 8 models (7 cached + 1 new); updated to dynamically assert `len(load_benchmarks_cache()) + 1` to accommodate multi-domain cache expansion.
-- In `normalize_benchmarks`, default parameter `task=None` preserves the default 4-term BenchNorm formula for general requests while allowing explicit domain formulas for specific workloads.
+- Colibri 1.49 bits rate on 27.0B parameters yields `(27e9 * 1.49) / (8 * 1024^2) = 4795.7897 MB` (~4795.79 MB), satisfying `<= 4800.0 MB`.
+- In `test_context_clamping_27b_and_7b_cpu`, Qwen 7B at 8192 context has initial FP16 KV cache of 448 MB (total 5328 MB > 0.80 * 6144 MB = 4915.2 MB), which automatically and correctly triggers Q8_0 KV cache fallback to 224 MB (total 5104 MB <= 6144 MB).
+- Under Phase 9 max_iq weighting profile (0.70/0.15/0.15), total score for top models is bounded by `0.70 * 1.0 + 0.15 * 1.0 = 0.8500`. Tied candidate models resolve via parameter count descending.
 
 ---
 
 ## Next Immediate Action
-- Hand off to Elephant Orchestrator with summary and verification results.
+- Hand off completed Subtask 2 results to Orchestrator agent via `send_message`.

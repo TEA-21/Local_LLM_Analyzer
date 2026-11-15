@@ -9,7 +9,9 @@
     "context_window": 32768,
     "arch_type": "dense",
     "num_layers": 28,
+    "layers": 28,
     "num_kv_heads": 4,
+    "kv_heads": 4,
     "head_dim": 128,
     "benchmarks": {
       "swe_bench_verified": 39.8,
@@ -150,14 +152,16 @@
   {
     "repo_id": "penkia/TernaryQuench-Qwen3.8-27B-GGUF",
     "filename": "TernaryQuench-Qwen3.8-27B-Q2_K.gguf",
-    "quant_method": "Q2_K",
+    "quant_method": "TERNARY",
     "param_count_billions": 27.0,
     "active_weight_ratio": 1.0,
-    "size_mb": 10360.0,
+    "size_mb": 4796.0,
     "context_window": 32768,
     "arch_type": "dense",
     "num_layers": 64,
+    "layers": 64,
     "num_kv_heads": 8,
+    "kv_heads": 8,
     "head_dim": 128,
     "benchmarks": {
       "swe_bench_verified": 49.2,
@@ -171,7 +175,7 @@
       "openllm_v2",
       "arena_elo"
     ],
-    "proof_justification": "Ternary-quantized 27B model achieving 49.2% SWE-bench in an optimized 10.3GB memory footprint.",
+    "proof_justification": "Ternary-quantized 27B model achieving 49.2% SWE-bench in an optimized 4.8GB Colibri memory footprint.",
     "citation_doi": "10.48550/arXiv.2409.12186",
     "paper_url": "https://arxiv.org/abs/2409.12186",
     "license": "apache-2.0"
@@ -215,8 +219,10 @@
     "context_window": 32768,
     "arch_type": "dense",
     "num_layers": 28,
+    "layers": 28,
     "num_kv_heads": 8,
-    "head_dim": 128,
+    "kv_heads": 8,
+    "head_dim": 64,
     "benchmarks": {
       "ifeval": 78.4,
       "arena_elo": 1160.0
@@ -265,7 +271,9 @@
     "context_window": 32768,
     "arch_type": "dense",
     "num_layers": 32,
+    "layers": 32,
     "num_kv_heads": 8,
+    "kv_heads": 8,
     "head_dim": 128,
     "benchmarks": {
       "eq_bench": 76.5,
@@ -292,7 +300,9 @@
     "context_window": 32768,
     "arch_type": "dense",
     "num_layers": 32,
+    "layers": 32,
     "num_kv_heads": 8,
+    "kv_heads": 8,
     "head_dim": 128,
     "benchmarks": {
       "eq_bench": 71.2,
@@ -319,7 +329,9 @@
     "context_window": 32768,
     "arch_type": "dense",
     "num_layers": 28,
+    "layers": 28,
     "num_kv_heads": 4,
+    "kv_heads": 4,
     "head_dim": 128,
     "benchmarks": {
       "mmlu_pro": 58.5,
@@ -398,7 +410,9 @@
     "context_window": 32768,
     "arch_type": "dense",
     "num_layers": 28,
+    "layers": 28,
     "num_kv_heads": 4,
+    "kv_heads": 4,
     "head_dim": 128,
     "benchmarks": {
       "gsm8k": 92.8,
