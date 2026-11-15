@@ -1,0 +1,159 @@
+[
+  {
+    "repo_id": "Qwen/Qwen2.5-Coder-7B-Instruct-GGUF",
+    "filename": "qwen2.5-coder-7b-instruct-q4_k_m.gguf",
+    "quant_method": "Q4_K_M",
+    "param_count_billions": 7.61,
+    "active_weight_ratio": 1.0,
+    "size_mb": 4680.0,
+    "context_window": 32768,
+    "arch_type": "dense",
+    "num_layers": 28,
+    "num_kv_heads": 4,
+    "head_dim": 128,
+    "benchmarks": {
+      "swe_bench_verified": 39.8,
+      "humaneval": 88.4,
+      "openllm_v2": 67.2,
+      "arena_elo": 1220.0
+    },
+    "citation_doi": "10.48550/arXiv.2409.12186",
+    "paper_url": "https://arxiv.org/abs/2409.12186",
+    "license": "apache-2.0"
+  },
+  {
+    "repo_id": "Qwen/Qwen2.5-Coder-3B-Instruct-GGUF",
+    "filename": "qwen2.5-coder-3b-instruct-q4_k_m.gguf",
+    "quant_method": "Q4_K_M",
+    "param_count_billions": 3.09,
+    "active_weight_ratio": 1.0,
+    "size_mb": 2050.0,
+    "context_window": 32768,
+    "arch_type": "dense",
+    "num_layers": 36,
+    "num_kv_heads": 2,
+    "head_dim": 128,
+    "benchmarks": {
+      "swe_bench_verified": 29.5,
+      "humaneval": 79.2,
+      "openllm_v2": 58.1,
+      "arena_elo": 1150.0
+    },
+    "citation_doi": "10.48550/arXiv.2409.12186",
+    "paper_url": "https://arxiv.org/abs/2409.12186",
+    "license": "apache-2.0"
+  },
+  {
+    "repo_id": "Qwen/Qwen2.5-Coder-1.5B-Instruct-GGUF",
+    "filename": "qwen2.5-coder-1.5b-instruct-q4_k_m.gguf",
+    "quant_method": "Q4_K_M",
+    "param_count_billions": 1.54,
+    "active_weight_ratio": 1.0,
+    "size_mb": 1150.0,
+    "context_window": 32768,
+    "arch_type": "dense",
+    "num_layers": 28,
+    "num_kv_heads": 2,
+    "head_dim": 128,
+    "benchmarks": {
+      "swe_bench_verified": 18.0,
+      "humaneval": 68.9,
+      "openllm_v2": 49.3,
+      "arena_elo": 1080.0
+    },
+    "citation_doi": "10.48550/arXiv.2409.12186",
+    "paper_url": "https://arxiv.org/abs/2409.12186",
+    "license": "apache-2.0"
+  },
+  {
+    "repo_id": "bartowski/DeepSeek-Coder-V2-Lite-Instruct-GGUF",
+    "filename": "DeepSeek-Coder-V2-Lite-Instruct-Q4_K_M.gguf",
+    "quant_method": "Q4_K_M",
+    "param_count_billions": 16.0,
+    "active_weight_ratio": 0.15,
+    "size_mb": 9600.0,
+    "context_window": 32768,
+    "arch_type": "deepseek_v2",
+    "num_layers": 27,
+    "num_kv_heads": 8,
+    "head_dim": 128,
+    "mla_v_head_dim": 128,
+    "mla_kv_lora_rank": 512,
+    "mla_rope_head_dim": 64,
+    "benchmarks": {
+      "swe_bench_verified": 43.5,
+      "humaneval": 90.2,
+      "openllm_v2": 69.8,
+      "arena_elo": 1245.0
+    },
+    "citation_doi": "10.48550/arXiv.2406.11931",
+    "paper_url": "https://arxiv.org/abs/2406.11931",
+    "license": "deepseek-license"
+  },
+  {
+    "repo_id": "Qwen/Qwen2.5-Coder-14B-Instruct-GGUF",
+    "filename": "qwen2.5-coder-14b-instruct-q4_k_m.gguf",
+    "quant_method": "Q4_K_M",
+    "param_count_billions": 14.7,
+    "active_weight_ratio": 1.0,
+    "size_mb": 9200.0,
+    "context_window": 32768,
+    "arch_type": "dense",
+    "num_layers": 48,
+    "num_kv_heads": 8,
+    "head_dim": 128,
+    "benchmarks": {
+      "swe_bench_verified": 48.0,
+      "humaneval": 92.1,
+      "openllm_v2": 73.5,
+      "arena_elo": 1270.0
+    },
+    "citation_doi": "10.48550/arXiv.2409.12186",
+    "paper_url": "https://arxiv.org/abs/2409.12186",
+    "license": "apache-2.0"
+  },
+  {
+    "repo_id": "penkia/TernaryQuench-Qwen3.8-27B-GGUF",
+    "filename": "TernaryQuench-Qwen3.8-27B-Q2_K.gguf",
+    "quant_method": "Q2_K",
+    "param_count_billions": 27.0,
+    "active_weight_ratio": 1.0,
+    "size_mb": 10360.0,
+    "context_window": 32768,
+    "arch_type": "dense",
+    "num_layers": 64,
+    "num_kv_heads": 8,
+    "head_dim": 128,
+    "benchmarks": {
+      "swe_bench_verified": 49.2,
+      "humaneval": 91.5,
+      "openllm_v2": 74.0,
+      "arena_elo": 1280.0
+    },
+    "citation_doi": "10.48550/arXiv.2409.12186",
+    "paper_url": "https://arxiv.org/abs/2409.12186",
+    "license": "apache-2.0"
+  },
+  {
+    "repo_id": "Qwen/Qwen2.5-Coder-32B-Instruct-GGUF",
+    "filename": "qwen2.5-coder-32b-instruct-q4_k_m.gguf",
+    "quant_method": "Q4_K_M",
+    "param_count_billions": 32.5,
+    "active_weight_ratio": 1.0,
+    "size_mb": 19800.0,
+    "context_window": 32768,
+    "arch_type": "dense",
+    "num_layers": 64,
+    "num_kv_heads": 8,
+    "head_dim": 128,
+    "benchmarks": {
+      "swe_bench_verified": 52.8,
+      "humaneval": 94.5,
+      "openllm_v2": 77.1,
+      "arena_elo": 1305.0
+    },
+    "citation_doi": "10.48550/arXiv.2409.12186",
+    "paper_url": "https://arxiv.org/abs/2409.12186",
+    "license": "apache-2.0"
+  }
+]
