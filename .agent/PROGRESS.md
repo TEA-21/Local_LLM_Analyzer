@@ -1,8 +1,8 @@
 # Agent Companion Packager - Progress & Tracking
 
 ## Current Active Phase & Status
-- **Current Phase:** Phase 5 Complete: Resumable Model Downloader & Agent Companion Configurator
-- **Status:** PASSED. Chunked resumable model downloader (`downloader.py`) with HTTP 206 partial resume, HTTP 200 clean reset, HTTP 416 range boundary handling, post-completion full SHA-256 integrity verification, pre-existing file idempotency, disk space preflight validation, and Rich progress bars implemented. Configuration injector (`configurator.py`) with `agent_companion.env`, multi-platform supervision launchers (`start_companion.py`, `start_companion.bat` with `%%~j` quote stripping, `start_companion.sh`), fail-soft desktop shortcut creation, and deterministic companion path resolution (`resolve_companion_path`) implemented and verified with 100% test pass rate (87/87 tests passing across entire suite).
+- **Current Phase:** Phase 6 Complete: Recursive Wheel Vendor & Cross-Platform Packaging Engine
+- **Status:** PASSED. Isolated monorepo wheel builder (`stage_and_build_monorepo_wheels`), workspace package filtering & dependency merger (`extract_and_filter_requirements`), pinned Python standalone runtime acquirer (`acquire_python_standalone`), third-party wheel vendorizer with target ABI matching (`vendor_third_party_wheels`), Inno Setup compiler & portable ZIP packager (`inno_builder.py`), and POSIX self-extracting archive builder (`sfx_builder.py`) implemented and verified with 100% test pass rate (98/98 tests passing across entire suite).
 - **argon_audit_runs:** 1
 
 ---
@@ -87,58 +87,67 @@
       - Generates `start_companion.sh`: POSIX shell script with executable permissions and clean LF newlines.
     - `resolve_companion_path()`: Deterministic search order (CLI flag -> `AGENT_COMPANION_PATH` env var -> `../Agent Companion` -> `../../Agent Companion` -> `D:\Projects\Agent Companion`).
     - `create_desktop_shortcut()`: Fail-soft desktop shortcut creation for Windows PowerShell COM and Linux desktop entry.
+14. **Isolated Monorepo Wheel Staging & Compilation (`src/companion_packager/installer/wheel_vendor.py`):**
+    - `stage_and_build_monorepo_wheels()`: Uses `tempfile.TemporaryDirectory()` to stage packages, injects stub `README.md` strictly in temporary staging when missing (preventing hatchling failure while keeping source checkout clean), and executes `python -m build --wheel --no-isolation` with `hatchling`.
+    - `build_packager_wheel()`: Builds `companion-packager` itself into a wheel and places it into `wheels/`.
+15. **Target ABI Matching & Dependency Filtering (`src/companion_packager/installer/wheel_vendor.py`):**
+    - `extract_and_filter_requirements()`: Uses stdlib `tomllib` to parse `pyproject.toml` files, filters out local workspace packages (`shared-contracts`, `model-runtime`, `security-server`, `document-pipeline`, `agent-tooling`, `companion-packager`), and appends packager dependencies. Returns sorted unique requirements list.
+    - `vendor_third_party_wheels()`: Supports offline cache copying and online `pip download` targeting Python 3.11 ABI (`--python-version 3.11 --platform <target> --abi cp311 --only-binary=:all: --implementation cp`). Raises `ValueError` when offline without cache.
+16. **Pinned Python Standalone Acquisition (`src/companion_packager/installer/wheel_vendor.py`):**
+    - `acquire_python_standalone()`: Acquires pinned release `20241016` (`install_only.tar.gz`) from `astral-sh/python-build-standalone` for Windows (`x86_64-pc-windows-msvc-shared`), Linux (`x86_64-unknown-linux-gnu`), and macOS (`aarch64-apple-darwin`).
+    - Strips leading root folder during extraction so binaries reside directly at `runtime/python.exe` or `runtime/bin/python3`.
+17. **Inno Setup Windows Compiler & Portable Fallback (`src/companion_packager/installer/inno_builder.py`):**
+    - `generate_inno_script()`: Generates valid `.iss` script with `#define SourceDir`, `PrivilegesRequired=lowest`, `DefaultDirName={localappdata}\Programs\Agent Companion`, `[Files]`, `[Icons]`, and `[Run]` invoking offline pip install and companion launcher.
+    - `build_windows_installer()`: Probes host for `iscc.exe` (PATH, Program Files, LocalAppData). If found, compiles `AgentCompanion-Installer.exe`. If missing, falls back to generating `AgentCompanion-Windows-Portable.zip` bundling all runtime files and launchers (`run_setup.bat`, `install.bat`, `start_companion.bat`).
+18. **POSIX Self-Extracting Archive Builder (`src/companion_packager/installer/sfx_builder.py`):**
+    - `build_posix_sfx()`: Compresses bundle directory into in-memory `tar.gz`, prepends bash self-extracting header with `sed` payload extraction, offline pip installation, launcher script chmodding, and launcher symlinking (`$HOME/.local/bin/agent-companion`). Sets executable permission bits (`0o755`).
 
 ---
 
 ## Files Created, Modified, or Removed
-- `src/companion_packager/installer/__init__.py`: Package init exporting `download_file`, `compute_sha256`, `clean_hash`, `DownloadError`, `DownloadChecksumError`, `DiskSpaceError`, `inject_agent_companion_config`, `create_desktop_shortcut`, `resolve_companion_path`.
-- `src/companion_packager/installer/downloader.py`: Resumable HTTP range downloader with `.part` staging, SHA-256 verification, and disk space preflight.
-- `src/companion_packager/installer/configurator.py`: Agent Companion environment injector, supervisor script generator, and path resolver.
-- `tests/test_downloader.py`: 11 unit tests covering clean_hash, compute_sha256, HTTP 200 download, HTTP 206 partial resume, HTTP 200 range override, HTTP 416 completed file handling, HTTP 416 corrupt restart, SHA-256 mismatch with `.corrupt` rename, idempotency skip on pre-existing files, disk space errors, and HTTP error responses.
-- `tests/test_configurator.py`: 9 unit tests covering 4-file generation, `agent_companion.env` exact keys/values, `start_companion.bat` `%%~j` quote stripping, `start_companion.sh` syntax and executable mode, `start_companion.py` compilation and environment parsing, `resolve_companion_path` resolution hierarchy, and `create_desktop_shortcut` fail-soft behavior.
-- `.agent/PROGRESS.md`: Updated with Phase 5 status and test verification logs.
+- `src/companion_packager/installer/wheel_vendor.py`: Monorepo wheel builder, workspace dependency filter, standalone Python acquirer, and third-party wheel vendorizer.
+- `src/companion_packager/installer/inno_builder.py`: Inno Setup script generator and Windows installer / portable ZIP packager.
+- `src/companion_packager/installer/sfx_builder.py`: POSIX self-extracting archive builder (.run) for Linux and macOS.
+- `src/companion_packager/installer/__init__.py`: Exported Phase 6 functions.
+- `tests/test_wheel_vendor.py`: 6 unit tests covering dependency extraction & workspace filtering, isolated staging without source mutation, standalone Python root stripping, and offline/online wheel vendoring.
+- `tests/test_inno_builder.py`: 3 unit tests covering Inno Setup directives, portable ZIP fallback, and compiler execution.
+- `tests/test_sfx_builder.py`: 2 unit tests covering POSIX SFX bash header, sed extraction, tar payload integrity, and custom app naming.
+- `.agent/PROGRESS.md`: Updated with Phase 6 status and test verification logs.
 
 ---
 
 ## Test Results & Verification Logs
-- `pytest -v tests/test_downloader.py`:
-  - `test_clean_hash`: PASSED
-  - `test_compute_sha256`: PASSED
-  - `test_download_file_200_full_download`: PASSED
-  - `test_download_file_206_resume_partial`: PASSED
-  - `test_download_file_200_server_ignores_range`: PASSED
-  - `test_download_file_416_already_fully_downloaded`: PASSED
-  - `test_download_file_416_corrupt_size_restarts_stream`: PASSED
-  - `test_download_file_checksum_mismatch`: PASSED (.part renamed to .corrupt, DownloadChecksumError raised)
-  - `test_download_file_idempotency_skip`: PASSED (0 HTTP requests made)
-  - `test_download_file_disk_space_error`: PASSED (DiskSpaceError raised before stream)
-  - `test_download_file_http_error`: PASSED (DownloadError raised on 404)
-- `pytest -v tests/test_configurator.py`:
-  - `test_inject_agent_companion_config_creates_all_files`: PASSED
-  - `test_agent_companion_env_keys_and_values`: PASSED
-  - `test_start_companion_bat_syntax`: PASSED (`set "%%i=%%~j"` verified)
-  - `test_start_companion_sh_syntax_and_mode`: PASSED (LF newlines verified)
-  - `test_start_companion_py_compiles_and_parses_env`: PASSED (syntax compiled, quotes stripped, os.environ injected)
-  - `test_resolve_companion_path_explicit`: PASSED
-  - `test_resolve_companion_path_env_var`: PASSED
-  - `test_resolve_companion_path_not_found`: PASSED
-  - `test_create_desktop_shortcut_fail_soft`: PASSED
-- Full Test Suite: `pytest -v tests/` -> 87/87 passed in 6.01s.
+- `pytest -v tests/test_wheel_vendor.py`:
+  - `test_extract_and_filter_requirements_mock`: PASSED
+  - `test_extract_and_filter_requirements_real_repo`: PASSED
+  - `test_stage_and_build_monorepo_wheels_isolated_staging`: PASSED
+  - `test_acquire_python_standalone_root_stripping`: PASSED
+  - `test_vendor_third_party_wheels_cache_and_offline`: PASSED
+  - `test_vendor_third_party_wheels_online_invocation`: PASSED
+- `pytest -v tests/test_inno_builder.py`:
+  - `test_generate_inno_script_directives`: PASSED
+  - `test_build_windows_installer_fallback_to_portable_zip`: PASSED
+  - `test_build_windows_installer_with_mock_iscc`: PASSED
+- `pytest -v tests/test_sfx_builder.py`:
+  - `test_build_posix_sfx_structure`: PASSED
+  - `test_build_posix_sfx_custom_app_name`: PASSED
+- Full Test Suite: `pytest -v tests/` -> 98/98 passed in 8.40s.
 - Wheel Build: `python -m build --wheel` -> `companion_packager-0.1.0-py3-none-any.whl` built cleanly.
 
 ---
 
 ## Orchestrator Handoff Context
-- Phase 5 complete. Resumable downloader (`downloader.py`) and configurator / script generator (`configurator.py`) operational and verified.
-- HTTP range resume, SHA-256 verification, idempotency, disk pre-flight, and launcher bootstrap scripts tested and conforming to PLAN.md specifications.
-- Ready for Phase 6: Recursive Wheel Vendor & Cross-Platform Packaging Engine (`wheel_vendor.py`, `inno_builder.py`, `sfx_builder.py`).
+- Phase 6 complete. All wheel vendorizing, Python standalone acquisition, Inno Setup script / portable packaging, and POSIX SFX archive generation implemented and verified.
+- Monorepo staging leaves source checkout 100% clean, workspace packages are cleanly filtered from requirements, and Python standalone runtime extracts with root prefixes stripped.
+- Inno Setup scripts and portable ZIP fallback validated; POSIX SFX archives with `sed` payload extraction validated.
+- Ready for Phase 7: End-to-End System Test & Verification across CLI commands (`profile`, `recommend`, `download`, `build`, `install`).
 
 ---
 
 ## Active Gotchas & Failed Paths
-- None. `Path.replace()` provides atomic file replacement on both Windows and POSIX systems. Ensure shell scripts (`start_companion.sh`) are written strictly with LF (`\n`) newlines.
+- In `sfx_builder.py`, `sed -e '1,/^__ARCHIVE_BELOW__/d' "$0"` expects `__ARCHIVE_BELOW__\n` as the exact boundary separating the bash script header from binary tar stream. Script header uses strictly LF line endings.
 
 ---
 
 ## Next Immediate Action
-- Hand off to Orchestrator for Phase 6 dispatch (Recursive wheel vendor, ABI matching, Python standalone extraction, and Inno Setup / SFX installer generation).
+- Hand off to Orchestrator for Phase 7 dispatch (End-to-end integration test across entire pipeline: Hardware scan -> Needs interview -> HF research -> Sizing decision -> Config generation -> Wheel vendor -> Installer build).
