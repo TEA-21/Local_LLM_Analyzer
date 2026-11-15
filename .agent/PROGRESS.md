@@ -1,8 +1,8 @@
 # Agent Companion Packager - Progress & Tracking
 
 ## Current Active Phase & Status
-- **Current Phase:** Phase 7 Complete: Modular Typer CLI, End-to-End Integration Test Harness & Distributable Wheel
-- **Status:** PASSED. Modular Typer CLI application (`src/companion_packager/cli.py` & `__main__.py`) implementing commands (`version`, `doctor`, `profile`, `analyze`, `recommend`, `download`, `build`, `install`), unit test suite (`tests/test_cli.py`), and full E2E user lifecycle integration suite (`tests/test_e2e_integration.py`) implemented and verified with 100% test pass rate (113/113 tests passing across entire suite in 8.11s). Distributable wheel `companion_packager-0.1.0-py3-none-any.whl` compiled and verified.
+- **Current Phase:** Phase 8 Complete: Dynamic Hugging Face Discovery Engine & Live Leaderboard Harvester
+- **Status:** PASSED. Dynamic Hugging Face Hub discovery subsystem implemented in `src/companion_packager/research/hf_client.py` and CLI commands (`analyze`, `recommend` with `--live`, `--no-live`, `--search`, `--limit`). Unit test suite in `tests/test_hf_discovery.py` (9 tests) and CLI integration tests in `tests/test_cli.py` (2 new tests) implemented and verified with 100% test pass rate (124/124 tests passing across full suite in 33.14s). Distributable wheel `companion_packager-0.1.0-py3-none-any.whl` compiled and verified.
 - **argon_audit_runs:** 1
 
 ---
@@ -45,9 +45,15 @@
      - `Arena_Elo` <-> `OpenLLM_v2` (`elo = clamp(1000 + 3.5 * ollm, 900, 1400)` / `ollm = clamp((elo - 1000)/3.5, 0, 100)`).
      - `MMLU-Pro` fallback to `OpenLLM_v2` or baseline.
    - Normalization into `[0.0, 1.0]` across general 4-term weighted default and task-specific formulas (coding, reasoning, chat).
-8. **Hugging Face Hub Client with Gated Repo Fallback (`src/companion_packager/research/hf_client.py`):**
-   - `get_model_candidates()`: When online, queries `api.model_info(repo_id, files_metadata=True)` to verify file sizes against LFS metadata.
-   - Defensively catches connection errors, timeouts, and HTTP 401/403 gated model errors (`HfHubHTTPError`, `GatedRepoError`), falling back cleanly to cached candidates.
+8. **Dynamic Hugging Face Hub Discovery Engine & Harvester (`src/companion_packager/research/hf_client.py`):**
+   - `parse_param_count_from_name`: Robust regex extraction of parameter scales in billions ("7B", "14B", "32B", "1.5b", "70B"), defaulting safely to 7.0 if unparseable.
+   - `detect_quant_and_file`: Scans sibling files ending with `.gguf` (excluding multimodal `mmproj` files), prioritizing quantization formats (`Q4_K_M` -> `Q5_K_M` -> `Q4_K_S` -> `Q4_0` -> `Q8_0` -> `Q2_K` -> first `.gguf`), extracting LFS file size or direct size in MB.
+   - `extract_arxiv_and_doi`: Scans repository tags for `arxiv:XXXX.YYYYY` or `arxiv:XXXXX`, generating canonical DOI (`10.48550/arXiv.{id}`) and paper URLs (`https://arxiv.org/abs/{id}`).
+   - `extract_license`: Parses tags for `license:<name>`, defaulting cleanly to `apache-2.0`.
+   - `estimate_model_layers`: Rule-based architecture mapping for layers, KV heads, and head dimensions across parameter envelopes (<2B -> (28, 2, 128), <5B -> (36, 2, 128), <10B -> (28, 4, 128), <20B -> (48, 8, 128), else -> (64, 8, 128)).
+   - `quant_to_bits_per_weight`: Accurately maps quantization methods to bits-per-weight for mathematical size estimation when remote LFS metadata is unpopulated.
+   - `discover_trending_models`: Queries Hugging Face Hub with curated task terms (`coder`, `reasoning`, `instruct`) or custom search query, handles API pagination/sorting defensively (`trending_score` with fallback to `trending` and un-sorted), detects MoE architectures (`v2-lite`, `moe`, `deepseek-v2` setting active ratio to 0.15), imputes baseline benchmark metrics, and returns list of `CandidateModel`.
+   - `get_model_candidates`: Supports `live_search` and `search_query`, deduplicates discovered candidates against cached models by repo ID and filename, while preserving airgapped offline guarantees.
 9. **Citation Cards & Markdown Report Synthesizer (`src/companion_packager/research/citations.py`):**
    - `generate_citation_card()`: Formats model details, architecture parameters, academic DOI, paper URLs, verified benchmarks, and hardware sizing breakdown.
    - `generate_recommendations_markdown()`: Assembles complete `RECOMMENDATIONS.md` summarizing scanned hardware, workload constraints, top 3 ranked models, quickstart execution instructions (`llama-server`), and BibTeX academic citations.
@@ -98,73 +104,55 @@
     - Strips leading root folder during extraction so binaries reside directly at `runtime/python.exe` or `runtime/bin/python3`.
 17. **Inno Setup Windows Compiler & Portable Fallback (`src/companion_packager/installer/inno_builder.py`):**
     - `generate_inno_script()`: Generates valid `.iss` script with `#define SourceDir`, `PrivilegesRequired=lowest`, `DefaultDirName={localappdata}\Programs\Agent Companion`, `[Files]`, `[Icons]`, and `[Run]` invoking offline pip install and companion launcher.
-    - `build_windows_installer()`: Probes host for `iscc.exe` (PATH, Program Files, LocalAppData). If found, compiles `AgentCompanion-Installer.exe`. If missing, falls back to generating `AgentCompanion-Windows-Portable.zip` bundling all runtime files and launchers (`run_setup.bat`, `install.bat`, `start_companion.bat`).
-18. **POSIX Self-Extracting Archive Builder (`src/companion_packager/installer/sfx_builder.py`):**
-    - `build_posix_sfx()`: Compresses bundle directory into in-memory `tar.gz`, prepends bash self-extracting header with `sed` payload extraction, offline pip installation, launcher script chmodding, and launcher symlinking (`$HOME/.local/bin/agent-companion`). Sets executable permission bits (`0o755`).
-19. **Modular Typer CLI Application (`src/companion_packager/cli.py` & `__main__.py`):**
-    - `app = typer.Typer(name="companion-packager")`: Complete command-line application with entrypoint in `__main__.py`.
-    - `version`: Prints `companion-packager v0.1.0` (also supports eager `--version` / `-v` flag).
-    - `doctor`: Comprehensive host sanity audit inspecting Python >= 3.11, CPU SIMD extensions (AVX-512, AVX2, NEON), RAM vs 6144 MB ceiling invariant, zero-PyTorch GPU detection, disk space, and Agent Companion packages.
-    - `profile`: Outputs host hardware profile as formatted Rich table or raw JSON (`--json`).
-    - `analyze`: End-to-end analyzer supporting `--task`, `--priority`, `--context-len`, `--license`, `--interactive/--headless`, `--offline`, `--output-md`, and `--sparsity-speedup`. Renders scorecard table and top model citation card.
-    - `recommend`: CLI alias for streamlined headless recommendations.
-    - `download`: Resumable chunked model downloader with `--dest`, `--offline`, `--expected-sha256`, and Rich progress display.
-    - `build`: Full installer compilation supporting `--mode thin|fat`, `--format installer|portable|sfx`, disk preflight checks, monorepo staging, wheel vendoring, standalone runtime acquisition, configuration injection, and portable/Inno/SFX packaging.
-    - `install`: Target machine offline setup extracting bundles, running offline pip install, and creating desktop shortcuts.
-20. **Comprehensive Unit & E2E Integration Test Suite (`tests/test_cli.py` & `tests/test_e2e_integration.py`):**
-    - Added 11 unit tests in `test_cli.py` verifying all CLI command invocations, options, table formatting, and headless executions.
-    - Added 4 comprehensive E2E integration tests in `test_e2e_integration.py` verifying the full user lifecycle: hardware probing -> needs discovery -> offline model sizing -> bundle staging -> config generation (`agent_companion.env`, `start_companion.bat`, `start_companion.sh`, `start_companion.py`) -> quote-stripping batch verification -> portable installer zip compilation -> archive integrity -> offline target install.
+18. **Typer CLI Dynamic Search & Harvester Options (`src/companion_packager/cli.py`):**
+    - Extended `analyze` and `recommend` subcommands with `--live / --no-live` (default: True), `--search / -s <query>`, and `--limit <count>`.
+    - Connected options to `get_model_candidates` for live dynamic discovery.
 
 ---
 
 ## Files Created, Modified, or Removed
-- `src/companion_packager/cli.py`: Complete Typer CLI application implementing all subcommands.
-- `src/companion_packager/__main__.py`: CLI entrypoint module.
-- `tests/test_cli.py`: Unit tests for CLI commands and argument options (11 tests).
-- `tests/test_e2e_integration.py`: End-to-end integration tests simulating full user workflows (4 tests).
-- `.agent/PROGRESS.md`: Updated with Phase 7 status, test logs, and artifact locations.
+- `src/companion_packager/research/hf_client.py`: Implemented `parse_param_count_from_name`, `detect_quant_and_file`, `extract_arxiv_and_doi`, `extract_license`, `estimate_model_layers`, `quant_to_bits_per_weight`, `discover_trending_models`, and updated `get_model_candidates`.
+- `src/companion_packager/research/__init__.py`: Exported dynamic discovery utilities.
+- `src/companion_packager/cli.py`: Extended `_run_analysis`, `analyze`, and `recommend` with `--live`, `--no-live`, `--search`, and `--limit`.
+- `tests/test_hf_discovery.py`: Dedicated test suite covering regex extraction, quant priority, arXiv parsing, layer estimation, mocked discovery, and CLI search.
+- `tests/test_cli.py`: Added tests for `--search`, `--live`, and `--no-live` options.
+- `.agent/PROGRESS.md`: Updated with Phase 8 discovery engine progress, verification logs, and artifacts.
 
 ---
 
 ## Test Results & Verification Logs
-- `pytest -v tests/test_cli.py`:
-  - `test_cli_version`: PASSED
-  - `test_cli_version_flag`: PASSED
-  - `test_cli_doctor`: PASSED
-  - `test_cli_profile_table`: PASSED
-  - `test_cli_profile_json`: PASSED
-  - `test_cli_analyze_headless`: PASSED
-  - `test_cli_recommend_alias`: PASSED
-  - `test_cli_download_offline_exists`: PASSED
-  - `test_cli_download_with_mock`: PASSED
-  - `test_cli_build_help`: PASSED
-  - `test_cli_install_help`: PASSED
-- `pytest -v tests/test_e2e_integration.py`:
-  - `test_e2e_user_workflow_cpu_pipeline`: PASSED
-  - `test_e2e_user_workflow_gpu_pipeline`: PASSED
-  - `test_e2e_cli_install_flow`: PASSED
-  - `test_e2e_cli_build_thin_mode`: PASSED
-- Full Test Suite: `pytest -v tests/` -> 113/113 passed in 8.11s.
-- CLI Invocation:
-  - `python -m companion_packager version` -> `companion-packager v0.1.0`
-  - `python -m companion_packager --help` -> Help menu with 8 commands rendered.
+- `pytest -v tests/test_hf_discovery.py`:
+  - `test_parse_param_count_from_name`: PASSED
+  - `test_detect_quant_and_file_priorities`: PASSED
+  - `test_extract_arxiv_and_doi`: PASSED
+  - `test_extract_license`: PASSED
+  - `test_estimate_model_layers`: PASSED
+  - `test_discover_trending_models_mocked`: PASSED
+  - `test_discover_trending_models_network_error_graceful`: PASSED
+  - `test_get_model_candidates_deduplication`: PASSED
+  - `test_cli_analyze_search`: PASSED
+- `pytest -v tests/test_cli.py`: 13/13 PASSED
+- Full Test Suite: `pytest -v tests/` -> 124/124 passed in 33.14s (100% pass rate).
+- Live CLI Verification:
+  - `companion-packager analyze --search "coder" --headless --limit 5`: PASSED. Successfully queried live Hugging Face Hub, parsed GGUF candidates, extracted metadata/quant, computed sizing and throughput, and ranked candidates without error.
+  - `companion-packager analyze --search "deepseek" --headless --limit 3`: PASSED.
 - Wheel Build:
   - `python -m build --wheel` -> `companion_packager-0.1.0-py3-none-any.whl` produced cleanly in `dist/`.
 
 ---
 
 ## Orchestrator Handoff Context
-- All 7 phases of the master specification in `.agent/PLAN.md` are 100% implemented, integrated, and verified with zero regressions.
-- Test coverage expanded to 113 automated tests across 13 test suites.
-- Specification drift audit confirmed zero unapproved changes, zero orphaned files, and strict adherence to architectural contracts.
-- Ready for final Orchestrator review and sign-off.
+- Dynamic Hugging Face Discovery Engine and live leaderboard harvester is completely implemented and tested.
+- 124 automated tests passing across 14 test suites.
+- Distributable wheel is built and ready in `dist/`.
 
 ---
 
 ## Active Gotchas & Failed Paths
-- In Typer, direct programmatic invocation of command functions with defaults requires separating command handlers from underlying execution helpers (`_run_analysis`) to avoid passing `OptionInfo` objects as runtime parameters.
+- `HfApi.list_models()` in modern `huggingface_hub` supports `sort="trending_score"` (not `trending` or `direction=-1`). Handled defensively with cascading fallbacks to support both current remote API and legacy mock signatures.
+- Remote models on Hugging Face Hub may omit LFS file size attributes in metadata; `quant_to_bits_per_weight` provides exact theoretical bits-per-weight fallback to ensure physically sound sizing calculations.
 
 ---
 
 ## Next Immediate Action
-- Hand off to Elephant Orchestrator for final specification drift audit and project wrap-up.
+- Hand off to Elephant Orchestrator.

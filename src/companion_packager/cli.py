@@ -242,6 +242,9 @@ def _run_analysis(
     output_md: Optional[Path] = None,
     hf_token: Optional[str] = None,
     sparsity_speedup: float = 0.0,
+    live: bool = True,
+    search: Optional[str] = None,
+    limit: int = 10,
 ) -> List[Scorecard]:
     console = Console()
     is_interactive = interactive and not non_interactive
@@ -259,7 +262,14 @@ def _run_analysis(
         require_permissive_license=req_permissive,
     )
 
-    candidates = get_model_candidates(offline=offline, hf_token=hf_token)
+    candidates = get_model_candidates(
+        offline=offline,
+        hf_token=hf_token,
+        live_search=(live and not offline),
+        search_query=search,
+        task=needs.task,
+        limit=limit,
+    )
     scorecards = rank_candidates(candidates, hardware, needs, sparsity_speedup=sparsity_speedup)
 
     display_scorecard_table(scorecards, console=console)
@@ -311,6 +321,15 @@ def analyze(
     sparsity_speedup: float = typer.Option(
         0.0, "--sparsity-speedup", help="Neuromorphic ternary sparsity speedup ratio."
     ),
+    live: bool = typer.Option(
+        True, "--live/--no-live", help="Query live Hugging Face Hub for trending models."
+    ),
+    search: Optional[str] = typer.Option(
+        None, "--search", "-s", help="Custom search query for Hugging Face Hub discovery."
+    ),
+    limit: int = typer.Option(
+        10, "--limit", help="Maximum number of live models to discover."
+    ),
 ) -> List[Scorecard]:
     """Analyze host hardware, interview user needs, and rank candidate models."""
     return _run_analysis(
@@ -324,6 +343,9 @@ def analyze(
         output_md=output_md,
         hf_token=hf_token,
         sparsity_speedup=sparsity_speedup,
+        live=live,
+        search=search,
+        limit=limit,
     )
 
 
@@ -353,6 +375,15 @@ def recommend(
     hf_token: Optional[str] = typer.Option(
         None, "--hf-token", help="Hugging Face API token."
     ),
+    live: bool = typer.Option(
+        True, "--live/--no-live", help="Query live Hugging Face Hub for trending models."
+    ),
+    search: Optional[str] = typer.Option(
+        None, "--search", "-s", help="Custom search query for Hugging Face Hub discovery."
+    ),
+    limit: int = typer.Option(
+        10, "--limit", help="Maximum number of live models to discover."
+    ),
 ) -> List[Scorecard]:
     """Run needs interview and output ranked recommendations with citations."""
     out_md = (output_dir / "RECOMMENDATIONS.md") if output_dir else None
@@ -367,6 +398,9 @@ def recommend(
         output_md=out_md,
         hf_token=hf_token,
         sparsity_speedup=0.0,
+        live=live,
+        search=search,
+        limit=limit,
     )
 
 

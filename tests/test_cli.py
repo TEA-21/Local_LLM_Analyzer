@@ -126,6 +126,45 @@ def test_cli_recommend_alias(tmp_path, mock_hardware):
         assert (out_dir / "RECOMMENDATIONS.md").exists()
 
 
+def test_cli_analyze_with_search_and_no_live(mock_hardware):
+    """Verify analyze command with --search and --no-live options."""
+    with patch("companion_packager.cli.detect_hardware", return_value=mock_hardware):
+        result = runner.invoke(
+            app,
+            [
+                "analyze",
+                "--headless",
+                "--no-live",
+                "--search",
+                "coder",
+                "--limit",
+                "3",
+            ],
+        )
+        assert result.exit_code == 0
+        assert "Candidate Model Sizing" in result.output
+
+
+def test_cli_recommend_with_search(tmp_path, mock_hardware):
+    """Verify recommend command with --search and --no-live flags."""
+    out_dir = tmp_path / "recs_search"
+    with patch("companion_packager.cli.detect_hardware", return_value=mock_hardware):
+        result = runner.invoke(
+            app,
+            [
+                "recommend",
+                "--non-interactive",
+                "--no-live",
+                "--search",
+                "deepseek",
+                "--output-dir",
+                str(out_dir),
+            ],
+        )
+        assert result.exit_code == 0
+        assert (out_dir / "RECOMMENDATIONS.md").exists()
+
+
 def test_cli_download_offline_exists(tmp_path):
     """Verify download command in offline mode when model file already exists."""
     models_dir = tmp_path / "models"
