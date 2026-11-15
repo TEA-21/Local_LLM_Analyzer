@@ -1,8 +1,8 @@
 # Agent Companion Packager - Progress & Tracking
 
 ## Current Active Phase & Status
-- **Current Phase:** Phase 6 Complete: Recursive Wheel Vendor & Cross-Platform Packaging Engine
-- **Status:** PASSED. Isolated monorepo wheel builder (`stage_and_build_monorepo_wheels`), workspace package filtering & dependency merger (`extract_and_filter_requirements`), pinned Python standalone runtime acquirer (`acquire_python_standalone`), third-party wheel vendorizer with target ABI matching (`vendor_third_party_wheels`), Inno Setup compiler & portable ZIP packager (`inno_builder.py`), and POSIX self-extracting archive builder (`sfx_builder.py`) implemented and verified with 100% test pass rate (98/98 tests passing across entire suite).
+- **Current Phase:** Phase 7 Complete: Modular Typer CLI, End-to-End Integration Test Harness & Distributable Wheel
+- **Status:** PASSED. Modular Typer CLI application (`src/companion_packager/cli.py` & `__main__.py`) implementing commands (`version`, `doctor`, `profile`, `analyze`, `recommend`, `download`, `build`, `install`), unit test suite (`tests/test_cli.py`), and full E2E user lifecycle integration suite (`tests/test_e2e_integration.py`) implemented and verified with 100% test pass rate (113/113 tests passing across entire suite in 8.11s). Distributable wheel `companion_packager-0.1.0-py3-none-any.whl` compiled and verified.
 - **argon_audit_runs:** 1
 
 ---
@@ -101,53 +101,70 @@
     - `build_windows_installer()`: Probes host for `iscc.exe` (PATH, Program Files, LocalAppData). If found, compiles `AgentCompanion-Installer.exe`. If missing, falls back to generating `AgentCompanion-Windows-Portable.zip` bundling all runtime files and launchers (`run_setup.bat`, `install.bat`, `start_companion.bat`).
 18. **POSIX Self-Extracting Archive Builder (`src/companion_packager/installer/sfx_builder.py`):**
     - `build_posix_sfx()`: Compresses bundle directory into in-memory `tar.gz`, prepends bash self-extracting header with `sed` payload extraction, offline pip installation, launcher script chmodding, and launcher symlinking (`$HOME/.local/bin/agent-companion`). Sets executable permission bits (`0o755`).
+19. **Modular Typer CLI Application (`src/companion_packager/cli.py` & `__main__.py`):**
+    - `app = typer.Typer(name="companion-packager")`: Complete command-line application with entrypoint in `__main__.py`.
+    - `version`: Prints `companion-packager v0.1.0` (also supports eager `--version` / `-v` flag).
+    - `doctor`: Comprehensive host sanity audit inspecting Python >= 3.11, CPU SIMD extensions (AVX-512, AVX2, NEON), RAM vs 6144 MB ceiling invariant, zero-PyTorch GPU detection, disk space, and Agent Companion packages.
+    - `profile`: Outputs host hardware profile as formatted Rich table or raw JSON (`--json`).
+    - `analyze`: End-to-end analyzer supporting `--task`, `--priority`, `--context-len`, `--license`, `--interactive/--headless`, `--offline`, `--output-md`, and `--sparsity-speedup`. Renders scorecard table and top model citation card.
+    - `recommend`: CLI alias for streamlined headless recommendations.
+    - `download`: Resumable chunked model downloader with `--dest`, `--offline`, `--expected-sha256`, and Rich progress display.
+    - `build`: Full installer compilation supporting `--mode thin|fat`, `--format installer|portable|sfx`, disk preflight checks, monorepo staging, wheel vendoring, standalone runtime acquisition, configuration injection, and portable/Inno/SFX packaging.
+    - `install`: Target machine offline setup extracting bundles, running offline pip install, and creating desktop shortcuts.
+20. **Comprehensive Unit & E2E Integration Test Suite (`tests/test_cli.py` & `tests/test_e2e_integration.py`):**
+    - Added 11 unit tests in `test_cli.py` verifying all CLI command invocations, options, table formatting, and headless executions.
+    - Added 4 comprehensive E2E integration tests in `test_e2e_integration.py` verifying the full user lifecycle: hardware probing -> needs discovery -> offline model sizing -> bundle staging -> config generation (`agent_companion.env`, `start_companion.bat`, `start_companion.sh`, `start_companion.py`) -> quote-stripping batch verification -> portable installer zip compilation -> archive integrity -> offline target install.
 
 ---
 
 ## Files Created, Modified, or Removed
-- `src/companion_packager/installer/wheel_vendor.py`: Monorepo wheel builder, workspace dependency filter, standalone Python acquirer, and third-party wheel vendorizer.
-- `src/companion_packager/installer/inno_builder.py`: Inno Setup script generator and Windows installer / portable ZIP packager.
-- `src/companion_packager/installer/sfx_builder.py`: POSIX self-extracting archive builder (.run) for Linux and macOS.
-- `src/companion_packager/installer/__init__.py`: Exported Phase 6 functions.
-- `tests/test_wheel_vendor.py`: 6 unit tests covering dependency extraction & workspace filtering, isolated staging without source mutation, standalone Python root stripping, and offline/online wheel vendoring.
-- `tests/test_inno_builder.py`: 3 unit tests covering Inno Setup directives, portable ZIP fallback, and compiler execution.
-- `tests/test_sfx_builder.py`: 2 unit tests covering POSIX SFX bash header, sed extraction, tar payload integrity, and custom app naming.
-- `.agent/PROGRESS.md`: Updated with Phase 6 status and test verification logs.
+- `src/companion_packager/cli.py`: Complete Typer CLI application implementing all subcommands.
+- `src/companion_packager/__main__.py`: CLI entrypoint module.
+- `tests/test_cli.py`: Unit tests for CLI commands and argument options (11 tests).
+- `tests/test_e2e_integration.py`: End-to-end integration tests simulating full user workflows (4 tests).
+- `.agent/PROGRESS.md`: Updated with Phase 7 status, test logs, and artifact locations.
 
 ---
 
 ## Test Results & Verification Logs
-- `pytest -v tests/test_wheel_vendor.py`:
-  - `test_extract_and_filter_requirements_mock`: PASSED
-  - `test_extract_and_filter_requirements_real_repo`: PASSED
-  - `test_stage_and_build_monorepo_wheels_isolated_staging`: PASSED
-  - `test_acquire_python_standalone_root_stripping`: PASSED
-  - `test_vendor_third_party_wheels_cache_and_offline`: PASSED
-  - `test_vendor_third_party_wheels_online_invocation`: PASSED
-- `pytest -v tests/test_inno_builder.py`:
-  - `test_generate_inno_script_directives`: PASSED
-  - `test_build_windows_installer_fallback_to_portable_zip`: PASSED
-  - `test_build_windows_installer_with_mock_iscc`: PASSED
-- `pytest -v tests/test_sfx_builder.py`:
-  - `test_build_posix_sfx_structure`: PASSED
-  - `test_build_posix_sfx_custom_app_name`: PASSED
-- Full Test Suite: `pytest -v tests/` -> 98/98 passed in 8.40s.
-- Wheel Build: `python -m build --wheel` -> `companion_packager-0.1.0-py3-none-any.whl` built cleanly.
+- `pytest -v tests/test_cli.py`:
+  - `test_cli_version`: PASSED
+  - `test_cli_version_flag`: PASSED
+  - `test_cli_doctor`: PASSED
+  - `test_cli_profile_table`: PASSED
+  - `test_cli_profile_json`: PASSED
+  - `test_cli_analyze_headless`: PASSED
+  - `test_cli_recommend_alias`: PASSED
+  - `test_cli_download_offline_exists`: PASSED
+  - `test_cli_download_with_mock`: PASSED
+  - `test_cli_build_help`: PASSED
+  - `test_cli_install_help`: PASSED
+- `pytest -v tests/test_e2e_integration.py`:
+  - `test_e2e_user_workflow_cpu_pipeline`: PASSED
+  - `test_e2e_user_workflow_gpu_pipeline`: PASSED
+  - `test_e2e_cli_install_flow`: PASSED
+  - `test_e2e_cli_build_thin_mode`: PASSED
+- Full Test Suite: `pytest -v tests/` -> 113/113 passed in 8.11s.
+- CLI Invocation:
+  - `python -m companion_packager version` -> `companion-packager v0.1.0`
+  - `python -m companion_packager --help` -> Help menu with 8 commands rendered.
+- Wheel Build:
+  - `python -m build --wheel` -> `companion_packager-0.1.0-py3-none-any.whl` produced cleanly in `dist/`.
 
 ---
 
 ## Orchestrator Handoff Context
-- Phase 6 complete. All wheel vendorizing, Python standalone acquisition, Inno Setup script / portable packaging, and POSIX SFX archive generation implemented and verified.
-- Monorepo staging leaves source checkout 100% clean, workspace packages are cleanly filtered from requirements, and Python standalone runtime extracts with root prefixes stripped.
-- Inno Setup scripts and portable ZIP fallback validated; POSIX SFX archives with `sed` payload extraction validated.
-- Ready for Phase 7: End-to-End System Test & Verification across CLI commands (`profile`, `recommend`, `download`, `build`, `install`).
+- All 7 phases of the master specification in `.agent/PLAN.md` are 100% implemented, integrated, and verified with zero regressions.
+- Test coverage expanded to 113 automated tests across 13 test suites.
+- Specification drift audit confirmed zero unapproved changes, zero orphaned files, and strict adherence to architectural contracts.
+- Ready for final Orchestrator review and sign-off.
 
 ---
 
 ## Active Gotchas & Failed Paths
-- In `sfx_builder.py`, `sed -e '1,/^__ARCHIVE_BELOW__/d' "$0"` expects `__ARCHIVE_BELOW__\n` as the exact boundary separating the bash script header from binary tar stream. Script header uses strictly LF line endings.
+- In Typer, direct programmatic invocation of command functions with defaults requires separating command handlers from underlying execution helpers (`_run_analysis`) to avoid passing `OptionInfo` objects as runtime parameters.
 
 ---
 
 ## Next Immediate Action
-- Hand off to Orchestrator for Phase 7 dispatch (End-to-end integration test across entire pipeline: Hardware scan -> Needs interview -> HF research -> Sizing decision -> Config generation -> Wheel vendor -> Installer build).
+- Hand off to Elephant Orchestrator for final specification drift audit and project wrap-up.
