@@ -231,8 +231,9 @@ def test_get_model_candidates_deduplication():
             search_query="qwq",
         )
 
-        # 7 cached candidates + 1 new candidate (duplicate Qwen 7B filtered out)
-        assert len(candidates) == 8
+        # cached candidates + 1 new candidate (duplicate Qwen 7B filtered out)
+        from companion_packager.research.benchmarks import load_benchmarks_cache
+        assert len(candidates) == len(load_benchmarks_cache()) + 1
         repos = [c.repo_id for c in candidates]
         assert "Qwen/QwQ-32B-Preview-GGUF" in repos
         assert repos.count("Qwen/Qwen2.5-Coder-7B-Instruct-GGUF") == 1

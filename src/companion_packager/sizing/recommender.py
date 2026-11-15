@@ -5,6 +5,7 @@ from rich.console import Console
 from rich.table import Table
 
 from companion_packager.research.benchmarks import normalize_benchmarks
+from companion_packager.research.citations import generate_proof_citation
 from companion_packager.schemas import (
     CandidateModel,
     HardwareProfile,
@@ -26,6 +27,7 @@ def rank_candidates(
     hardware: HardwareProfile,
     user_needs: UserNeeds,
     sparsity_speedup: float = 0.0,
+    hard_exclude: bool = False,
 ) -> List[Scorecard]:
     """Score, filter, and rank candidate models against host hardware profile and user needs."""
     # Filter for permissive license if required
@@ -58,6 +60,10 @@ def rank_candidates(
             sparsity_speedup=sparsity_speedup,
         )
 
+        # Hard-exclusion if weights exceed budget ceiling and hard_exclude requested
+        if hard_exclude and evaluation.weights_mb > evaluation.budget_ceiling_mb:
+            continue
+
         # Context length verification
         if candidate.context_window < user_needs.min_context_tokens:
             evaluation = evaluation.model_copy(
@@ -75,6 +81,13 @@ def rank_candidates(
         speed_score = min(max(evaluation.tokens_per_second / 50.0, 0.0), 1.0)
         final_score = (w_task * task_fit + w_speed * speed_score) - evaluation.ram_penalty
 
+        proof_cit = generate_proof_citation(
+            candidate=candidate,
+            task=user_needs.task,
+            eval_result=evaluation,
+            budget_mb=evaluation.budget_ceiling_mb,
+        )
+
         scorecard = Scorecard(
             candidate=candidate,
             evaluation=evaluation,
@@ -82,6 +95,7 @@ def rank_candidates(
             latency_score=round(speed_score, 4),
             final_score=round(final_score, 4),
             rank=1,
+            proof_citation=proof_cit,
         )
         scorecards.append(scorecard)
 

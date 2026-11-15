@@ -17,6 +17,13 @@
       "openllm_v2": 67.2,
       "arena_elo": 1220.0
     },
+    "measured_benchmarks": [
+      "swe_bench_verified",
+      "humaneval",
+      "openllm_v2",
+      "arena_elo"
+    ],
+    "proof_justification": "Industry standard 7B coder achieving 39.8% SWE-bench Verified and 88.4% HumanEval under 6GB CPU limit.",
     "citation_doi": "10.48550/arXiv.2409.12186",
     "paper_url": "https://arxiv.org/abs/2409.12186",
     "license": "apache-2.0"
@@ -39,6 +46,13 @@
       "openllm_v2": 58.1,
       "arena_elo": 1150.0
     },
+    "measured_benchmarks": [
+      "swe_bench_verified",
+      "humaneval",
+      "openllm_v2",
+      "arena_elo"
+    ],
+    "proof_justification": "Lightweight 3B coding model scoring 79.2% HumanEval while preserving ample KV cache headroom on constrained PCs.",
     "citation_doi": "10.48550/arXiv.2409.12186",
     "paper_url": "https://arxiv.org/abs/2409.12186",
     "license": "apache-2.0"
@@ -61,6 +75,13 @@
       "openllm_v2": 49.3,
       "arena_elo": 1080.0
     },
+    "measured_benchmarks": [
+      "swe_bench_verified",
+      "humaneval",
+      "openllm_v2",
+      "arena_elo"
+    ],
+    "proof_justification": "Ultra-compact 1.5B code assistant fitting into sub-2GB memory footprint with 68.9% HumanEval pass rate.",
     "citation_doi": "10.48550/arXiv.2409.12186",
     "paper_url": "https://arxiv.org/abs/2409.12186",
     "license": "apache-2.0"
@@ -86,6 +107,13 @@
       "openllm_v2": 69.8,
       "arena_elo": 1245.0
     },
+    "measured_benchmarks": [
+      "swe_bench_verified",
+      "humaneval",
+      "openllm_v2",
+      "arena_elo"
+    ],
+    "proof_justification": "Top-tier MoE coder with 43.5% SWE-bench Verified and 90.2% HumanEval, accelerated by 0.15 active weight routing.",
     "citation_doi": "10.48550/arXiv.2406.11931",
     "paper_url": "https://arxiv.org/abs/2406.11931",
     "license": "deepseek-license"
@@ -108,6 +136,13 @@
       "openllm_v2": 73.5,
       "arena_elo": 1270.0
     },
+    "measured_benchmarks": [
+      "swe_bench_verified",
+      "humaneval",
+      "openllm_v2",
+      "arena_elo"
+    ],
+    "proof_justification": "Heavyweight 14B coding model delivering 48.0% SWE-bench and 92.1% HumanEval for dedicated GPU workstations.",
     "citation_doi": "10.48550/arXiv.2409.12186",
     "paper_url": "https://arxiv.org/abs/2409.12186",
     "license": "apache-2.0"
@@ -130,6 +165,13 @@
       "openllm_v2": 74.0,
       "arena_elo": 1280.0
     },
+    "measured_benchmarks": [
+      "swe_bench_verified",
+      "humaneval",
+      "openllm_v2",
+      "arena_elo"
+    ],
+    "proof_justification": "Ternary-quantized 27B model achieving 49.2% SWE-bench in an optimized 10.3GB memory footprint.",
     "citation_doi": "10.48550/arXiv.2409.12186",
     "paper_url": "https://arxiv.org/abs/2409.12186",
     "license": "apache-2.0"
@@ -152,8 +194,223 @@
       "openllm_v2": 77.1,
       "arena_elo": 1305.0
     },
+    "measured_benchmarks": [
+      "swe_bench_verified",
+      "humaneval",
+      "openllm_v2",
+      "arena_elo"
+    ],
+    "proof_justification": "State-of-the-art 32B coding foundation model yielding 52.8% SWE-bench Verified for 24GB+ GPU systems.",
     "citation_doi": "10.48550/arXiv.2409.12186",
     "paper_url": "https://arxiv.org/abs/2409.12186",
+    "license": "apache-2.0"
+  },
+  {
+    "repo_id": "bartowski/Llama-3.2-3B-Instruct-GGUF",
+    "filename": "Llama-3.2-3B-Instruct-Q4_K_M.gguf",
+    "quant_method": "Q4_K_M",
+    "param_count_billions": 3.2,
+    "active_weight_ratio": 1.0,
+    "size_mb": 2050.0,
+    "context_window": 32768,
+    "arch_type": "dense",
+    "num_layers": 28,
+    "num_kv_heads": 8,
+    "head_dim": 128,
+    "benchmarks": {
+      "ifeval": 78.4,
+      "arena_elo": 1160.0
+    },
+    "measured_benchmarks": [
+      "ifeval",
+      "arena_elo"
+    ],
+    "proof_justification": "Optimized 3B desktop assistant with 78.4% IFEval accuracy, running smoothly within 6GB RAM constraints.",
+    "citation_doi": "10.48550/arXiv.2407.21783",
+    "paper_url": "https://arxiv.org/abs/2407.21783",
+    "license": "llama3.2"
+  },
+  {
+    "repo_id": "HuggingFaceTB/SmolLM2-1.7B-Instruct-GGUF",
+    "filename": "smollm2-1.7b-instruct-q4_k_m.gguf",
+    "quant_method": "Q4_K_M",
+    "param_count_billions": 1.7,
+    "active_weight_ratio": 1.0,
+    "size_mb": 1050.0,
+    "context_window": 8192,
+    "arch_type": "dense",
+    "num_layers": 24,
+    "num_kv_heads": 4,
+    "head_dim": 64,
+    "benchmarks": {
+      "ifeval": 68.2,
+      "arena_elo": 1090.0
+    },
+    "measured_benchmarks": [
+      "ifeval",
+      "arena_elo"
+    ],
+    "proof_justification": "Ultra-efficient 1.7B local assistant delivering 68.2% IFEval instruction following under a 1.1GB memory footprint.",
+    "citation_doi": "10.48550/arXiv.2502.02737",
+    "paper_url": "https://arxiv.org/abs/2502.02737",
+    "license": "apache-2.0"
+  },
+  {
+    "repo_id": "bartowski/Meta-Llama-3.1-8B-Instruct-GGUF",
+    "filename": "Meta-Llama-3.1-8B-Instruct-Q4_K_M.gguf",
+    "quant_method": "Q4_K_M",
+    "param_count_billions": 8.0,
+    "active_weight_ratio": 1.0,
+    "size_mb": 4920.0,
+    "context_window": 32768,
+    "arch_type": "dense",
+    "num_layers": 32,
+    "num_kv_heads": 8,
+    "head_dim": 128,
+    "benchmarks": {
+      "eq_bench": 76.5,
+      "mt_bench_writing": 8.8,
+      "arena_elo": 1210.0
+    },
+    "measured_benchmarks": [
+      "eq_bench",
+      "mt_bench_writing",
+      "arena_elo"
+    ],
+    "proof_justification": "Outstanding narrative depth and dialogue voice with 76.5 EQ-Bench and 8.8 MT-Bench writing score.",
+    "citation_doi": "10.48550/arXiv.2407.21783",
+    "paper_url": "https://arxiv.org/abs/2407.21783",
+    "license": "llama3.1"
+  },
+  {
+    "repo_id": "bartowski/Mistral-7B-Instruct-v0.3-GGUF",
+    "filename": "Mistral-7B-Instruct-v0.3-Q4_K_M.gguf",
+    "quant_method": "Q4_K_M",
+    "param_count_billions": 7.2,
+    "active_weight_ratio": 1.0,
+    "size_mb": 4370.0,
+    "context_window": 32768,
+    "arch_type": "dense",
+    "num_layers": 32,
+    "num_kv_heads": 8,
+    "head_dim": 128,
+    "benchmarks": {
+      "eq_bench": 71.2,
+      "mt_bench_writing": 8.4,
+      "arena_elo": 1180.0
+    },
+    "measured_benchmarks": [
+      "eq_bench",
+      "mt_bench_writing",
+      "arena_elo"
+    ],
+    "proof_justification": "Fully permissive Apache-2.0 model with rich stylistic prose and 71.2 EQ-Bench creative score.",
+    "citation_doi": "10.48550/arXiv.2310.06825",
+    "paper_url": "https://arxiv.org/abs/2310.06825",
+    "license": "apache-2.0"
+  },
+  {
+    "repo_id": "Qwen/Qwen2.5-7B-Instruct-GGUF",
+    "filename": "qwen2.5-7b-instruct-q4_k_m.gguf",
+    "quant_method": "Q4_K_M",
+    "param_count_billions": 7.6,
+    "active_weight_ratio": 1.0,
+    "size_mb": 4680.0,
+    "context_window": 32768,
+    "arch_type": "dense",
+    "num_layers": 28,
+    "num_kv_heads": 4,
+    "head_dim": 128,
+    "benchmarks": {
+      "mmlu_pro": 58.5,
+      "arena_elo": 1220.0,
+      "ifeval": 82.1
+    },
+    "measured_benchmarks": [
+      "mmlu_pro",
+      "arena_elo",
+      "ifeval"
+    ],
+    "proof_justification": "Superior structured summarization with 82.1% IFEval and 58.5% MMLU-Pro across complex documents.",
+    "citation_doi": "10.48550/arXiv.2412.15115",
+    "paper_url": "https://arxiv.org/abs/2412.15115",
+    "license": "apache-2.0"
+  },
+  {
+    "repo_id": "Qwen/Qwen2.5-3B-Instruct-GGUF",
+    "filename": "qwen2.5-3b-instruct-q4_k_m.gguf",
+    "quant_method": "Q4_K_M",
+    "param_count_billions": 3.0,
+    "active_weight_ratio": 1.0,
+    "size_mb": 2050.0,
+    "context_window": 32768,
+    "arch_type": "dense",
+    "num_layers": 36,
+    "num_kv_heads": 2,
+    "head_dim": 128,
+    "benchmarks": {
+      "mmlu_pro": 44.2,
+      "arena_elo": 1150.0,
+      "ifeval": 76.5
+    },
+    "measured_benchmarks": [
+      "mmlu_pro",
+      "arena_elo",
+      "ifeval"
+    ],
+    "proof_justification": "Compact 3B summarizer with 76.5% IFEval leaving ample KV cache headroom under memory ceilings.",
+    "citation_doi": "10.48550/arXiv.2412.15115",
+    "paper_url": "https://arxiv.org/abs/2412.15115",
+    "license": "apache-2.0"
+  },
+  {
+    "repo_id": "unsloth/DeepSeek-R1-Distill-Qwen-1.5B-GGUF",
+    "filename": "DeepSeek-R1-Distill-Qwen-1.5B-Q4_K_M.gguf",
+    "quant_method": "Q4_K_M",
+    "param_count_billions": 1.5,
+    "active_weight_ratio": 1.0,
+    "size_mb": 805.0,
+    "context_window": 32768,
+    "arch_type": "dense",
+    "num_layers": 28,
+    "num_kv_heads": 2,
+    "head_dim": 128,
+    "benchmarks": {
+      "gsm8k": 83.2,
+      "math": 65.4
+    },
+    "measured_benchmarks": [
+      "gsm8k",
+      "math"
+    ],
+    "proof_justification": "Compact distilled reasoning model delivering 83.2% GSM8K accuracy in an 805MB lightweight footprint.",
+    "citation_doi": "10.48550/arXiv.2501.12948",
+    "paper_url": "https://arxiv.org/abs/2501.12948",
+    "license": "apache-2.0"
+  },
+  {
+    "repo_id": "unsloth/DeepSeek-R1-Distill-Qwen-7B-GGUF",
+    "filename": "DeepSeek-R1-Distill-Qwen-7B-Q4_K_M.gguf",
+    "quant_method": "Q4_K_M",
+    "param_count_billions": 7.6,
+    "active_weight_ratio": 1.0,
+    "size_mb": 4680.0,
+    "context_window": 32768,
+    "arch_type": "dense",
+    "num_layers": 28,
+    "num_kv_heads": 4,
+    "head_dim": 128,
+    "benchmarks": {
+      "gsm8k": 92.8,
+      "math": 79.8
+    },
+    "measured_benchmarks": [
+      "gsm8k",
+      "math"
+    ],
+    "proof_justification": "Exceptional mathematical and logical reasoning with 92.8% GSM8K and 79.8% MATH benchmark performance.",
+    "citation_doi": "10.48550/arXiv.2501.12948",
+    "paper_url": "https://arxiv.org/abs/2501.12948",
     "license": "apache-2.0"
   }
 ]

@@ -45,6 +45,7 @@ from companion_packager.installer.wheel_vendor import (
 from companion_packager.interview.questionnaire import ask_user_needs
 from companion_packager.research.citations import (
     generate_citation_card,
+    generate_proof_citation_card,
     generate_recommendations_markdown,
 )
 from companion_packager.research.hf_client import get_model_candidates
@@ -245,6 +246,7 @@ def _run_analysis(
     live: bool = True,
     search: Optional[str] = None,
     limit: int = 10,
+    custom_intent: Optional[str] = None,
 ) -> List[Scorecard]:
     console = Console()
     is_interactive = interactive and not non_interactive
@@ -260,6 +262,7 @@ def _run_analysis(
         priority=priority,
         min_context_tokens=context_len,
         require_permissive_license=req_permissive,
+        custom_intent=custom_intent,
     )
 
     candidates = get_model_candidates(
@@ -269,6 +272,7 @@ def _run_analysis(
         search_query=search,
         task=needs.task,
         limit=limit,
+        custom_intent=needs.custom_intent,
     )
     scorecards = rank_candidates(candidates, hardware, needs, sparsity_speedup=sparsity_speedup)
 
@@ -276,8 +280,12 @@ def _run_analysis(
 
     if scorecards:
         top_sc = scorecards[0]
-        card = generate_citation_card(top_sc.candidate, top_sc.evaluation)
-        console.print(Panel(card, title="[bold green]Top Recommended Model[/bold green]", border_style="cyan"))
+        if top_sc.proof_citation:
+            proof_card = generate_proof_citation_card(top_sc.proof_citation)
+            console.print(Panel(proof_card, title="[bold green]Top Recommended Model: 3-Pillar Proof Citation[/bold green]", border_style="cyan"))
+        else:
+            card = generate_citation_card(top_sc.candidate, top_sc.evaluation)
+            console.print(Panel(card, title="[bold green]Top Recommended Model[/bold green]", border_style="cyan"))
 
     if output_md:
         output_md = Path(output_md)
@@ -292,7 +300,10 @@ def _run_analysis(
 @app.command("analyze")
 def analyze(
     task: Optional[str] = typer.Option(
-        None, "--task", "-t", help="Target task domain: coding, reasoning, or chat."
+        None, "--task", "-t", help="Target task domain: coding, creative_writing, general_desktop, reasoning_math, summarization, custom."
+    ),
+    custom_intent: Optional[str] = typer.Option(
+        None, "--custom-intent", help="Freeform user intent description when task=custom."
     ),
     priority: Optional[str] = typer.Option(
         None, "--priority", "-p", help="Optimization priority: quality, balanced, or speed."
@@ -346,13 +357,17 @@ def analyze(
         live=live,
         search=search,
         limit=limit,
+        custom_intent=custom_intent,
     )
 
 
 @app.command("recommend")
 def recommend(
     task: Optional[str] = typer.Option(
-        None, "--task", "-t", help="Target task domain: coding, reasoning, or chat."
+        None, "--task", "-t", help="Target task domain: coding, creative_writing, general_desktop, reasoning_math, summarization, custom."
+    ),
+    custom_intent: Optional[str] = typer.Option(
+        None, "--custom-intent", help="Freeform user intent description when task=custom."
     ),
     priority: Optional[str] = typer.Option(
         None, "--priority", "-p", help="Optimization priority: quality, balanced, or speed."
@@ -397,10 +412,10 @@ def recommend(
         offline=offline,
         output_md=out_md,
         hf_token=hf_token,
-        sparsity_speedup=0.0,
         live=live,
         search=search,
         limit=limit,
+        custom_intent=custom_intent,
     )
 
 

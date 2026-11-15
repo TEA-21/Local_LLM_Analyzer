@@ -71,14 +71,19 @@ def estimate_tokens_per_second(
     weights_mb: float,
     active_weight_ratio: float = 1.0,
     sparsity_speedup: float = 0.0,
+    sparsity_factor: Optional[float] = None,
 ) -> float:
     """Estimate autoregressive token generation throughput bound by memory bandwidth.
 
     Formula:
-        Tokens/sec = (B_sustained * (1 + S)) / max((M_weights_GB * active_weight_ratio), 0.001)
+        Tokens/sec = (B_sustained * (1 + S)) / max((M_weights_GB * effective_ratio), 0.001)
     """
-    effective_weights_gb = max((weights_mb / 1024.0) * active_weight_ratio, 0.001)
-    return (bandwidth_gb_s * (1.0 + sparsity_speedup)) / effective_weights_gb
+    sparsity = sparsity_factor if sparsity_factor is not None else sparsity_speedup
+    clamped_sparsity = max(0.0, min(float(sparsity), 1.0))
+    effective_ratio = max(active_weight_ratio, 0.05)
+    weights_gb = weights_mb / 1024.0
+    denominator = max(weights_gb * effective_ratio, 0.001)
+    return (bandwidth_gb_s * (1.0 + clamped_sparsity)) / denominator
 
 
 def calculate_ram_penalty(runtime_mb: float, budget_ceiling_mb: float) -> float:

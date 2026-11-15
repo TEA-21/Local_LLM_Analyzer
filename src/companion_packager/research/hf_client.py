@@ -7,6 +7,7 @@ import os
 import re
 from typing import Any, Dict, List, Optional, Tuple
 
+from companion_packager.interview.questionnaire import parse_custom_intent
 from companion_packager.research.benchmarks import load_benchmarks_cache
 from companion_packager.schemas import CandidateModel
 from companion_packager.sizing.formulas import calculate_weights_mb
@@ -15,8 +16,22 @@ logger = logging.getLogger(__name__)
 
 QUANT_PRIORITY: List[str] = ["Q4_K_M", "Q5_K_M", "Q4_K_S", "Q4_0", "Q8_0", "Q2_K"]
 
+TASK_QUERY_BUNDLES: Dict[str, List[str]] = {
+    "coding": ["coder", "code", "dev"],
+    "creative_writing": ["story", "creative", "writing", "prose", "rp"],
+    "general_desktop": ["instruct", "assistant", "general"],
+    "reasoning_math": ["reasoning", "math", "logic", "distill"],
+    "summarization": ["summary", "summarization", "long-context"],
+    "reasoning": ["reasoning", "math", "logic", "distill"],
+    "chat": ["instruct", "assistant", "general"],
+}
+
 TASK_SEARCH_QUERIES: Dict[str, str] = {
     "coding": "coder",
+    "creative_writing": "story",
+    "general_desktop": "instruct",
+    "reasoning_math": "reasoning",
+    "summarization": "summary",
     "reasoning": "reasoning",
     "chat": "instruct",
 }
@@ -215,6 +230,7 @@ def discover_trending_models(
     search_query: Optional[str] = None,
     limit: int = 15,
     hf_token: Optional[str] = None,
+    custom_intent: str = "",
 ) -> List[CandidateModel]:
     """Discover trending GGUF model checkpoints from Hugging Face Hub."""
     token = hf_token or os.getenv("HF_TOKEN")
@@ -231,7 +247,14 @@ def discover_trending_models(
         logger.warning("Failed to initialize HfApi for discovery: %s", exc)
         return []
 
-    query = search_query if search_query else TASK_SEARCH_QUERIES.get(task.lower(), "coder")
+    if search_query:
+        query = search_query
+    elif task.lower().strip() == "custom":
+        custom_terms = parse_custom_intent(custom_intent)
+        query = custom_terms[0] if custom_terms else "instruct"
+    else:
+        bundle = TASK_QUERY_BUNDLES.get(task.lower().strip(), ["coder"])
+        query = bundle[0]
 
     # Defensive call to api.list_models supporting diverse hub/mock configurations
     model_iter = None
@@ -360,6 +383,7 @@ def get_model_candidates(
     search_query: Optional[str] = None,
     task: str = "coding",
     limit: int = 10,
+    custom_intent: str = "",
 ) -> List[CandidateModel]:
     """Retrieve candidate models from Hugging Face Hub or offline fallback cache.
 
@@ -433,6 +457,7 @@ def get_model_candidates(
             search_query=search_query,
             limit=limit,
             hf_token=hf_token,
+            custom_intent=custom_intent,
         )
 
         existing_keys = {
