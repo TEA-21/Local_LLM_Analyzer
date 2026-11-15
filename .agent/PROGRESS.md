@@ -1,8 +1,8 @@
 # Agent Companion Packager - Progress & Tracking
 
 ## Current Active Phase & Status
-- **Current Phase:** Phase 3 Complete: Model Research, Hugging Face Client, Benchmark Registry & Citations
-- **Status:** PASSED. 100% offline airgapped fallback benchmark dataset, two-way benchmark imputation, robust BenchNorm calculations, Hugging Face Hub LFS metadata queries with gated error handling, structured citation cards, and comprehensive RECOMMENDATIONS.md markdown synthesis implemented and verified with 100% test pass rate (56/56 tests passing across entire suite).
+- **Current Phase:** Phase 4 Complete: Interactive Questionnaire, Sizing Matrix & Multi-Backend Recommender Engine
+- **Status:** PASSED. Interactive Rich-prompt and headless user needs interview (`ask_user_needs`), multi-tier candidate recommendation and ranking matrix (`rank_candidates`), permissive license filtering, context length enforcement, hardware profile sizing integration, and Rich terminal scorecard table renderer (`display_scorecard_table`) implemented and verified with 100% test pass rate (67/67 tests passing across entire suite).
 - **argon_audit_runs:** 1
 
 ---
@@ -51,48 +51,66 @@
 9. **Citation Cards & Markdown Report Synthesizer (`src/companion_packager/research/citations.py`):**
    - `generate_citation_card()`: Formats model details, architecture parameters, academic DOI, paper URLs, verified benchmarks, and hardware sizing breakdown.
    - `generate_recommendations_markdown()`: Assembles complete `RECOMMENDATIONS.md` summarizing scanned hardware, workload constraints, top 3 ranked models, quickstart execution instructions (`llama-server`), and BibTeX academic citations.
+10. **Interactive & Headless User Needs Discovery (`src/companion_packager/interview/questionnaire.py`):**
+    - `ask_user_needs()`: Exposes dual-mode operation:
+      - Interactive mode: Rich `Prompt.ask` for task domain (`coding`, `reasoning`, `chat`), optimization goal (`quality`, `balanced`, `speed`), context length (`16384`, `32768`, `8192`, `4096`), and `Confirm.ask` for permissive license constraint.
+      - Headless / automated mode: Uses defaults or CLI arguments without blocking.
+    - Full input validation rejecting unknown task types, priorities, or non-positive context limits.
+11. **Multi-Backend Sizing Matrix & Recommender Engine (`src/companion_packager/sizing/recommender.py`):**
+    - `rank_candidates()`:
+      - Case-insensitive filtering against `PERMISSIVE_LICENSES` (`{"apache-2.0", "mit", "bsd-3-clause", "bsd-2-clause"}`).
+      - Context window threshold enforcement (disqualifying models whose context window is smaller than requested context).
+      - Domain task fit via `normalize_benchmarks` and latency scoring `min(tok_s / 50.0, 1.0)`.
+      - Priority weighting:
+        - `quality`: w_task = 0.70, w_speed = 0.30
+        - `balanced`: w_task = 0.50, w_speed = 0.50
+        - `speed`: w_task = 0.30, w_speed = 0.70
+      - Final score calculation incorporating harmonized piecewise RAM penalty: `(w_task * task_fit + w_speed * speed_score) - evaluation.ram_penalty`.
+      - Deterministic sorting by `final_score` descending and 1-based rank assignment.
+    - `display_scorecard_table()`: Rich terminal table displaying rank, model repository, quant method, estimated speed, RAM requirement, budget ceiling, status badge, and final score.
 
 ---
 
 ## Files Created, Modified, or Removed
-- `src/companion_packager/research/__init__.py`: Package init exporting public API.
-- `src/companion_packager/research/benchmarks_cache.json`: Airgapped candidate models registry.
-- `src/companion_packager/research/benchmarks.py`: Benchmark registry, two-way imputation, and normalization engine.
-- `src/companion_packager/research/hf_client.py`: Resilient HF Hub client with offline fallback.
-- `src/companion_packager/research/citations.py`: Structured citation card and RECOMMENDATIONS.md generator.
-- `tests/test_research.py`: 10 comprehensive unit tests covering offline cache loading, two-way imputation, BenchNorm bounds, HF client online LFS size updates, gated repo fallback, citation cards, and markdown report synthesis.
-- `.agent/PROGRESS.md`: Updated with Phase 3 status and test verification logs.
+- `src/companion_packager/interview/__init__.py`: Package init exporting `ask_user_needs`.
+- `src/companion_packager/interview/questionnaire.py`: Interactive Rich and headless user needs interview.
+- `src/companion_packager/sizing/recommender.py`: Candidate model recommendation, ranking matrix, and scorecard table renderer.
+- `src/companion_packager/sizing/__init__.py`: Updated exports for `rank_candidates`, `display_scorecard_table`, and `PERMISSIVE_LICENSES`.
+- `src/companion_packager/sizing/formulas.py`: Enhanced `is_mla` check to recognize `deepseek_v2` and `deepseek` architectures.
+- `tests/test_recommender.py`: 11 unit tests covering headless defaults, explicit flags, validation errors, monkeypatched interactive prompts, permissive license filtering, sub-6GB CPU laptop invariants, MoE mid-tier GPU speedup, high-tier 24GB+ GPU quality ranking, priority shifts, context window violations, and Rich table rendering.
+- `.agent/PROGRESS.md`: Updated with Phase 4 status and test verification logs.
 
 ---
 
 ## Test Results & Verification Logs
-- `pytest -v tests/test_research.py`:
-  - `test_load_benchmarks_cache_success`: PASSED (7 candidate models validated against Pydantic schemas).
-  - `test_load_benchmarks_cache_missing_file`: PASSED (FileNotFoundError handled cleanly).
-  - `test_normalize_benchmarks_imputation`: PASSED (SWE-bench <-> HumanEval and Arena-Elo <-> OpenLLM two-way imputation verified).
-  - `test_normalize_benchmarks_weights_and_bounds`: PASSED (4-term formula and [0.0, 1.0] bounding verified).
-  - `test_normalize_benchmarks_task_domains`: PASSED (coding, reasoning, and chat domain formulas verified).
-  - `test_hf_client_offline_mode`: PASSED (100% offline airgapped operation verified).
-  - `test_hf_client_online_lfs_size_update`: PASSED (sibling LFS size update verified).
-  - `test_hf_client_gated_and_network_error_fallback`: PASSED (gated repo and network failure fallback to cache verified).
-  - `test_generate_citation_card`: PASSED (simple and sizing-evaluation-augmented cards verified).
-  - `test_generate_recommendations_markdown`: PASSED (full RECOMMENDATIONS.md artifact structure verified).
-- Full Test Suite: `pytest -v tests/` -> 56/56 passed in 5.47s.
-- Wheel Build: `python -m build --wheel` -> `companion_packager-0.1.0-py3-none-any.whl` built cleanly, containing `companion_packager/research/benchmarks_cache.json`.
+- `pytest -v tests/test_recommender.py`:
+  - `test_ask_user_needs_headless_defaults`: PASSED (defaults validated).
+  - `test_ask_user_needs_headless_custom`: PASSED (explicit arguments respected).
+  - `test_ask_user_needs_validation_errors`: PASSED (invalid task, priority, context rejected).
+  - `test_ask_user_needs_interactive_mocked`: PASSED (4 interactive prompts captured).
+  - `test_permissive_license_filtering`: PASSED (DeepSeek excluded under permissive filter, included otherwise).
+  - `test_cpu_laptop_profile_recommendation`: PASSED (Qwen 7B fits under 6144 MB ceiling and ranks #1 for coding; 14B and 32B rejected with -900+ penalty).
+  - `test_mid_tier_gpu_recommendation`: PASSED (DeepSeek-Coder-V2-Lite MoE active_weight_ratio 0.15 gives >200 tok/s and top tier rank).
+  - `test_high_tier_24gb_gpu_recommendation`: PASSED (Qwen 32B achieves 0.978 task fit and ranks #1 for quality).
+  - `test_priority_weighting_shifts`: PASSED (quality vs speed priority weight shifts verified).
+  - `test_context_window_violation_penalized`: PASSED (8k context model rejected when 16k context requested).
+  - `test_display_scorecard_table`: PASSED (Rich table rendered without exceptions).
+- Full Test Suite: `pytest -v tests/` -> 67/67 passed in 5.04s.
+- Wheel Build: `python -m build --wheel` -> `companion_packager-0.1.0-py3-none-any.whl` built cleanly.
 
 ---
 
 ## Orchestrator Handoff Context
-- Phase 3 complete. Research subsystem, offline benchmark registry, HF Hub client, and citation synthesizer operational and fully verified.
-- All candidate models deserialize into Pydantic `CandidateModel` schemas with verified benchmarks and DOIs.
-- Ready for Phase 4: Sizing & Scoring Matrix (`src/companion_packager/sizing/matrix.py`, `questionnaire.py`, `recommender.py`).
+- Phase 4 complete. Interactive interview (`ask_user_needs`), scoring matrix (`rank_candidates`), and scorecard visualizer (`display_scorecard_table`) operational and fully verified.
+- Sub-6GB RAM invariant verified on CPU profiles; MoE 0.15 active weight throughput verified on GPU profiles; license and context length constraints verified.
+- Ready for Phase 5: Resumable Model Downloader & Agent Companion Configurator (`downloader.py`, `configurator.py`).
 
 ---
 
 ## Active Gotchas & Failed Paths
-- None. BenchNorm calculation rounds to 6 decimal places before clamping to avoid floating-point representation artifact (`0.9999999999999999` vs `1.0`).
+- None. When evaluating 32B on workstation GPUs, VRAM envelope must accommodate total runtime memory (weights + KV cache + overhead) without exceeding 87.5% threshold to avoid piecewise RAM penalty.
 
 ---
 
 ## Next Immediate Action
-- Hand off to Orchestrator for Phase 4 dispatch (Questionnaire, scoring matrix, and recommendation engine).
+- Hand off to Orchestrator for Phase 5 dispatch (Resumable downloader with HTTP range/resume/SHA-256 verification, and Agent Companion configuration generator).

@@ -119,7 +119,7 @@ def evaluate_sizing(
     overhead_mb = CUDA_OVERHEAD_MB if is_gpu else CPU_OVERHEAD_MB
     budget_ceiling_mb = calculate_budget_ceiling_mb(hardware)
 
-    is_mla = candidate.arch_type.lower() == "mla"
+    is_mla = candidate.arch_type.lower() in ("mla", "deepseek_v2", "deepseek")
     # Attempt FP16 KV cache (2.0 bytes per element)
     kv_cache_mb = calculate_kv_cache_mb(
         layers=candidate.num_layers,
