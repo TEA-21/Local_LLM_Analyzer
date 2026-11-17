@@ -8,7 +8,11 @@ import sys
 from pathlib import Path
 from typing import Dict, Optional
 
-from companion_packager.schemas import CandidateModel, HardwareProfile
+from companion_packager.schemas import (
+    CandidateModel,
+    ConcurrencyScenarioBudget,
+    HardwareProfile,
+)
 
 
 def resolve_companion_path(companion_path: Path | str | None = None) -> Path:
@@ -113,6 +117,7 @@ def inject_agent_companion_config(
     hardware: HardwareProfile,
     host: str = "127.0.0.1",
     port: int = 8000,
+    scenario: Optional[ConcurrencyScenarioBudget] = None,
 ) -> dict[str, Path]:
     """Generate agent_companion.env and bootstrap launcher scripts in the bundle directory.
 
@@ -152,8 +157,20 @@ def inject_agent_companion_config(
     else:
         context_length = 32768
 
-    max_ram_mb = 5200.0
-    ram_ceiling_mb = 6144.0
+    if scenario is not None:
+        max_ram_mb = round(scenario.budget_ceiling_mb, 1)
+    else:
+        max_ram_mb = 5200.0
+
+    if is_cpu:
+        ram_ceiling_mb = 6144.0
+    else:
+        if scenario is not None:
+            ram_ceiling_mb = round(scenario.budget_ceiling_mb, 1)
+        elif hardware.gpus:
+            ram_ceiling_mb = round(hardware.gpus[0].vram_total_mb * 0.80, 1)
+        else:
+            ram_ceiling_mb = 6144.0
 
     # 1. agent_companion.env
     env_path = bundle_dir / "agent_companion.env"
@@ -213,8 +230,13 @@ def main() -> None:
     if (backend == "colibri_ternary" or backend == "cpu_llama") and "cpu" in device:
         try:
             from agent_tooling.hardware_profiler.memory_guard import HardwareProfiler
+            import logging
+            logger = logging.getLogger("agent_companion")
             profiler = HardwareProfiler()
             assert profiler.RAM_CEILING_MB <= 6144.0, "Violates sub-6GB RAM invariant"
+            MAX_RAM_MB = float(os.environ.get("AGENT_COMPANION_MAX_RAM_MB", "5200.0"))
+            if profiler.AVAILABLE_RAM_MB < (MAX_RAM_MB * 0.70):
+                logger.warning("Current free RAM lower than scenario threshold. Consider switching to Parallel mode.")
         except ImportError:
             pass
 
@@ -271,3 +293,6 @@ if __name__ == "__main__":
         "bat": bat_path,
         "sh": sh_path,
     }
+
+
+generate_config = inject_agent_companion_config

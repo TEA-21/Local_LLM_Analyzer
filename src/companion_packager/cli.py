@@ -6,6 +6,7 @@ for Agent Companion.
 
 from __future__ import annotations
 
+import json
 import os
 import shutil
 import subprocess
@@ -20,6 +21,7 @@ from rich.panel import Panel
 from rich.table import Table
 
 from companion_packager.hardware.detector import check_disk_space_preflight, detect_hardware
+from companion_packager.hardware.process_inspector import audit_active_processes
 from companion_packager.installer.configurator import (
     create_desktop_shortcut,
     inject_agent_companion_config,
@@ -49,8 +51,22 @@ from companion_packager.research.citations import (
     generate_recommendations_markdown,
 )
 from companion_packager.research.hf_client import get_model_candidates
-from companion_packager.schemas import CandidateModel, HardwareProfile, Scorecard, UserNeeds
-from companion_packager.sizing.recommender import display_scorecard_table, rank_candidates
+from companion_packager.schemas import (
+    CandidateModel,
+    ConcurrencyScenario,
+    ConcurrencyScenarioBudget,
+    HardwareProfile,
+    ProcessMemorySummary,
+    Scorecard,
+    UserNeeds,
+)
+from companion_packager.sizing import (
+    calculate_scenario_budgets,
+    display_concurrency_scenarios_table,
+    display_scorecard_table,
+    evaluate_all_concurrency_scenarios,
+    rank_candidates,
+)
 
 app = typer.Typer(
     name="companion-packager",
@@ -378,6 +394,9 @@ def recommend(
     license: Optional[str] = typer.Option(
         None, "--license", "-l", help="License filter: permissive or any."
     ),
+    scenario: Optional[str] = typer.Option(
+        None, "--scenario", help="Target concurrency scenario (parallel, minimal, dedicated)."
+    ),
     offline: bool = typer.Option(
         False, "--offline", help="Offline airgapped mode."
     ),
@@ -400,23 +419,106 @@ def recommend(
         10, "--limit", help="Maximum number of live models to discover."
     ),
 ) -> List[Scorecard]:
-    """Run needs interview and output ranked recommendations with citations."""
-    out_md = (output_dir / "RECOMMENDATIONS.md") if output_dir else None
-    return _run_analysis(
+    """Run needs interview and output ranked recommendations with citations across operational concurrency scenarios."""
+    console = Console()
+    req_permissive = None
+    if license:
+        req_permissive = license.lower().strip() == "permissive"
+
+    hardware = detect_hardware()
+    needs = ask_user_needs(
+        interactive=not non_interactive,
         task=task,
         priority=priority,
-        context_len=context_len,
-        license=license,
-        interactive=not non_interactive,
-        non_interactive=non_interactive,
-        offline=offline,
-        output_md=out_md,
-        hf_token=hf_token,
-        live=live,
-        search=search,
-        limit=limit,
+        min_context_tokens=context_len,
+        require_permissive_license=req_permissive,
         custom_intent=custom_intent,
     )
+
+    candidates = get_model_candidates(
+        offline=offline,
+        hf_token=hf_token,
+        live_search=(live and not offline),
+        search_query=search,
+        task=needs.task,
+        limit=limit,
+        custom_intent=needs.custom_intent,
+    )
+
+    summary = audit_active_processes()
+    scenario_budgets = evaluate_all_concurrency_scenarios(
+        hardware, needs, candidates, process_summary=summary
+    )
+    display_concurrency_scenarios_table(scenario_budgets, summary, console=console)
+
+    # Resolve selected scenario
+    selected_scenario_enum: ConcurrencyScenario
+    if scenario:
+        sc_clean = scenario.lower().strip()
+        if sc_clean in ("parallel", "1"):
+            selected_scenario_enum = ConcurrencyScenario.PARALLEL
+        elif sc_clean in ("minimal", "minimal_interference", "minimal-interference", "2"):
+            selected_scenario_enum = ConcurrencyScenario.MINIMAL_INTERFERENCE
+        elif sc_clean in ("dedicated", "3"):
+            selected_scenario_enum = ConcurrencyScenario.DEDICATED
+        else:
+            selected_scenario_enum = ConcurrencyScenario.PARALLEL
+    elif not non_interactive:
+        choice = typer.prompt(
+            "Select operational concurrency scenario: [1] Parallel Coexistence, [2] Minimal Interference, [3] Dedicated Alone",
+            default="1",
+        )
+        choice_clean = str(choice).strip()
+        if choice_clean == "2" or "minimal" in choice_clean.lower():
+            selected_scenario_enum = ConcurrencyScenario.MINIMAL_INTERFERENCE
+        elif choice_clean == "3" or "dedicated" in choice_clean.lower():
+            selected_scenario_enum = ConcurrencyScenario.DEDICATED
+        else:
+            selected_scenario_enum = ConcurrencyScenario.PARALLEL
+    else:
+        selected_scenario_enum = ConcurrencyScenario.PARALLEL
+
+    scenario_map = {sb.scenario: sb for sb in scenario_budgets}
+    chosen_budget = scenario_map[selected_scenario_enum]
+
+    scorecards = rank_candidates(
+        candidates,
+        hardware,
+        needs,
+        budget_ceiling_override_mb=chosen_budget.budget_ceiling_mb,
+    )
+
+    display_scorecard_table(scorecards, console=console)
+
+    if scorecards:
+        top_sc = scorecards[0]
+        if top_sc.proof_citation:
+            proof_card = generate_proof_citation_card(top_sc.proof_citation)
+            console.print(
+                Panel(
+                    proof_card,
+                    title="[bold green]Top Recommended Model: 3-Pillar Proof Citation[/bold green]",
+                    border_style="cyan",
+                )
+            )
+        else:
+            card = generate_citation_card(top_sc.candidate, top_sc.evaluation)
+            console.print(
+                Panel(
+                    card,
+                    title="[bold green]Top Recommended Model[/bold green]",
+                    border_style="cyan",
+                )
+            )
+
+    if output_dir:
+        out_md = Path(output_dir) / "RECOMMENDATIONS.md"
+        out_md.parent.mkdir(parents=True, exist_ok=True)
+        md_text = generate_recommendations_markdown(scorecards, hardware, needs)
+        out_md.write_text(md_text, encoding="utf-8")
+        console.print(f"[bold green]Saved recommendations to: {out_md}[/bold green]")
+
+    return scorecards
 
 
 @app.command("download")
@@ -523,6 +625,33 @@ def build(
         "--file",
         help="Model filename for fat installer.",
     ),
+    task: Optional[str] = typer.Option(
+        None,
+        "--task",
+        "-t",
+        help="Target task domain: coding, creative_writing, general_desktop, reasoning_math, summarization, custom.",
+    ),
+    priority: Optional[str] = typer.Option(
+        None,
+        "--priority",
+        "-p",
+        help="Optimization priority: quality, balanced, or speed.",
+    ),
+    scenario: Optional[str] = typer.Option(
+        None,
+        "--scenario",
+        help="Target concurrency scenario (parallel, minimal, dedicated).",
+    ),
+    target_os: Optional[str] = typer.Option(
+        None,
+        "--target-os",
+        help="Target operating system override (windows, darwin, linux).",
+    ),
+    target_arch: Optional[str] = typer.Option(
+        None,
+        "--target-arch",
+        help="Target CPU architecture override (x86_64, arm64).",
+    ),
     offline: bool = typer.Option(
         False,
         "--offline",
@@ -582,15 +711,19 @@ def build(
 
     console.print("[bold blue]Vendoring third-party dependencies...[/bold blue]")
     reqs = extract_and_filter_requirements(resolved_companion)
-    target_os = (
-        "windows"
-        if sys.platform == "win32"
-        else ("darwin" if sys.platform == "darwin" else "linux")
+    target_os_val = (
+        target_os
+        if target_os
+        else (
+            "windows"
+            if sys.platform == "win32"
+            else ("darwin" if sys.platform == "darwin" else "linux")
+        )
     )
     third_party_wheels = vendor_third_party_wheels(
         reqs,
         wheels_dest,
-        target_os=target_os,
+        target_os=target_os_val,
         wheels_cache_dir=wheels_dir,
         offline=offline,
     )
@@ -602,10 +735,23 @@ def build(
     python_bin = acquire_python_standalone(
         runtime_dest,
         python_dist_path=python_dist,
-        target_os=target_os,
+        target_os=target_os_val,
         offline=offline,
     )
     console.print(f"[green]Acquired Python runtime at {python_bin}.[/green]")
+
+    # Resolve concurrency scenario and budget
+    chosen_scenario = ConcurrencyScenario.PARALLEL
+    if scenario:
+        sc_clean = scenario.lower().strip()
+        if sc_clean in ("minimal", "minimal_interference", "minimal-interference", "2"):
+            chosen_scenario = ConcurrencyScenario.MINIMAL_INTERFERENCE
+        elif sc_clean in ("dedicated", "3"):
+            chosen_scenario = ConcurrencyScenario.DEDICATED
+
+    summary = audit_active_processes()
+    scenario_budgets = calculate_scenario_budgets(hardware, process_summary=summary)
+    chosen_budget = scenario_budgets[chosen_scenario]
 
     # Resolve candidate model
     candidates = get_model_candidates(offline=True)
@@ -626,8 +772,15 @@ def build(
                 size_mb=4680.0,
             )
     else:
-        needs = UserNeeds(task="coding", priority="balanced")
-        scorecards = rank_candidates(candidates, hardware, needs)
+        task_val = task if task else "coding"
+        priority_val = priority if priority else "balanced"
+        needs = UserNeeds(task=task_val, priority=priority_val)
+        scorecards = rank_candidates(
+            candidates,
+            hardware,
+            needs,
+            budget_ceiling_override_mb=chosen_budget.budget_ceiling_mb,
+        )
         selected_model = scorecards[0].candidate if scorecards else candidates[0]
 
     # Staging model for fat mode
@@ -658,7 +811,22 @@ def build(
                 download_file(url, dest_model_file, show_progress=True)
 
     console.print("[bold blue]Injecting Agent Companion runtime configuration...[/bold blue]")
-    inject_agent_companion_config(bundle_dir, selected_model, hardware)
+    inject_agent_companion_config(
+        bundle_dir, selected_model, hardware, scenario=chosen_budget
+    )
+
+    # Write installer manifest
+    chosen_model_path = f"models/{selected_model.filename}"
+    manifest_data = {
+        "scenario": chosen_scenario.value,
+        "task": task if task else "coding",
+        "priority": priority if priority else "balanced",
+        "model_path": chosen_model_path,
+        "target_os": target_os_val,
+        "target_arch": target_arch or hardware.cpu_arch,
+    }
+    manifest_file = bundle_dir / "installer_manifest.json"
+    manifest_file.write_text(json.dumps(manifest_data, indent=2), encoding="utf-8")
 
     console.print(f"[bold blue]Packaging installer into format '{fmt_clean}'...[/bold blue]")
     final_artifact: Path
@@ -673,6 +841,7 @@ def build(
             f"[bold green]Artifact Created:[/bold green] {final_artifact}\n"
             f"[bold cyan]Mode:[/bold cyan] {mode_clean.upper()}\n"
             f"[bold cyan]Model:[/bold cyan] {selected_model.filename}\n"
+            f"[bold cyan]Scenario:[/bold cyan] {chosen_scenario.value}\n"
             f"[bold cyan]Size:[/bold cyan] {final_artifact.stat().st_size / (1024 * 1024):.1f} MB",
             title="[bold green]Build Succeeded[/bold green]",
             border_style="green",
@@ -691,6 +860,12 @@ def install(
     ),
     model_path: Optional[Path] = typer.Option(
         None, "--model-path", help="Optional path to model file to copy."
+    ),
+    manifest: Optional[Path] = typer.Option(
+        None, "--manifest", help="Path to installer_manifest.json."
+    ),
+    scenario: Optional[str] = typer.Option(
+        None, "--scenario", help="Target concurrency scenario override."
     ),
     non_interactive: bool = typer.Option(
         False, "--non-interactive", help="Run without prompts."
@@ -748,6 +923,34 @@ def install(
                     else:
                         shutil.copy2(item, dst)
 
+    # Check for installer_manifest.json
+    manifest_file = None
+    if manifest and Path(manifest).exists():
+        manifest_file = Path(manifest)
+    elif (install_dir / "installer_manifest.json").exists():
+        manifest_file = install_dir / "installer_manifest.json"
+    elif bundle_path and (Path(bundle_path) / "installer_manifest.json").exists():
+        manifest_file = Path(bundle_path) / "installer_manifest.json"
+
+    if manifest_file:
+        try:
+            m_data = json.loads(manifest_file.read_text(encoding="utf-8"))
+            if not scenario and m_data.get("scenario"):
+                scenario = m_data.get("scenario")
+            if not model_path and m_data.get("model_path"):
+                cand_p = Path(m_data["model_path"])
+                if cand_p.is_absolute() and cand_p.exists():
+                    model_path = cand_p
+                elif (install_dir / cand_p).exists():
+                    model_path = install_dir / cand_p
+                elif (Path.cwd() / cand_p).exists():
+                    model_path = Path.cwd() / cand_p
+                else:
+                    model_path = install_dir / cand_p
+            console.print(f"[green]Loaded installer manifest: scenario={scenario}, model={model_path}[/green]")
+        except Exception as e:
+            console.print(f"[yellow]Warning parsing manifest: {e}[/yellow]")
+
     # Locate Python binary
     python_candidates = [
         install_dir / "runtime" / "python.exe",
@@ -793,7 +996,9 @@ def install(
     if model_path and Path(model_path).exists():
         models_dir = install_dir / "models"
         models_dir.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(model_path, models_dir / Path(model_path).name)
+        dest_model_file = models_dir / Path(model_path).name
+        if not dest_model_file.exists() or dest_model_file.resolve() != Path(model_path).resolve():
+            shutil.copy2(model_path, dest_model_file)
 
     # Create shortcut fail-soft
     create_desktop_shortcut(install_dir)

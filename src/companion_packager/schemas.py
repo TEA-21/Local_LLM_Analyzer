@@ -1,5 +1,6 @@
 """Pydantic v2 domain schemas for companion-packager."""
 
+from enum import Enum
 from typing import Any, Dict, List, Literal, Optional
 from pydantic import BaseModel, Field, model_validator
 
@@ -55,6 +56,18 @@ class ProofCitation(BaseModel):
     ram_headroom_mb: float
     tokens_per_second: float
     justification_bullets: List[str] = Field(default_factory=list)
+
+    @property
+    def headline_metric_name(self) -> str:
+        return self.task_benchmark_name
+
+    @property
+    def headline_metric_value(self) -> str:
+        return f"{self.task_benchmark_score:.1f}"
+
+    @property
+    def headline_metric_tag(self) -> str:
+        return "Measured" if self.is_measured else "Estimated"
 
 
 class CandidateModel(BaseModel):
@@ -132,6 +145,44 @@ class Scorecard(BaseModel):
     proof_citation: Optional[ProofCitation] = None
 
 
+class ProcessCategory(str, Enum):
+    """Categorization of running host processes for memory budgeting."""
+    BROWSERS = "browsers"
+    IDES = "ides"
+    DEV_RUNTIMES = "dev_runtimes"
+    SYSTEM = "system"
+    OTHER = "other"
+
+
+class ProcessMemorySummary(BaseModel):
+    """Aggregated memory footprint of active host processes by category."""
+    browsers_mb: float = 0.0
+    ides_mb: float = 0.0
+    dev_runtimes_mb: float = 0.0
+    system_mb: float = 0.0
+    other_mb: float = 0.0
+    total_scanned_mb: float = 0.0
+    top_processes: List[Dict[str, Any]] = Field(default_factory=list)
+
+
+class ConcurrencyScenario(str, Enum):
+    """Operational concurrency modes for host memory partitioning."""
+    PARALLEL = "parallel"
+    MINIMAL_INTERFERENCE = "minimal_interference"
+    DEDICATED = "dedicated"
+
+
+class ConcurrencyScenarioBudget(BaseModel):
+    """Memory budget and top recommendation under a specific operational concurrency mode."""
+    scenario: ConcurrencyScenario
+    title: str
+    description: str
+    available_ram_mb: float
+    reclaimable_ram_mb: float
+    budget_ceiling_mb: float
+    recommended_scorecard: Optional[Scorecard] = None
+
+
 __all__ = [
     "GPUInfo",
     "HardwareProfile",
@@ -140,5 +191,9 @@ __all__ = [
     "CandidateModel",
     "SizingEvaluation",
     "Scorecard",
+    "ProcessCategory",
+    "ProcessMemorySummary",
+    "ConcurrencyScenario",
+    "ConcurrencyScenarioBudget",
 ]
 

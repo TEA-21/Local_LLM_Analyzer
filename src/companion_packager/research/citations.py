@@ -3,7 +3,10 @@
 from datetime import datetime, timezone
 from typing import Dict, List, Optional
 
-from companion_packager.research.benchmarks import impute_missing_benchmarks
+from companion_packager.research.benchmarks import (
+    impute_missing_benchmarks,
+    resolve_custom_domain,
+)
 from companion_packager.schemas import (
     CandidateModel,
     HardwareProfile,
@@ -30,27 +33,44 @@ def generate_proof_citation(
     task: str,
     eval_result: SizingEvaluation,
     budget_mb: float,
+    custom_intent: Optional[str] = None,
 ) -> ProofCitation:
     """Generate empirical 3-pillar proof citation for a candidate model."""
     task_clean = task.lower().strip() if task else "coding"
+    if task_clean == "custom":
+        effective_domain = resolve_custom_domain(custom_intent)
+    else:
+        effective_domain = task_clean
+
     prim_key, prim_name, alt_key, alt_name = DOMAIN_PRIMARY_BENCHMARKS.get(
-        task_clean, ("swe_bench_verified", "SWE-bench Verified", "humaneval", "HumanEval")
+        effective_domain, ("swe_bench_verified", "SWE-bench Verified", "humaneval", "HumanEval")
     )
 
     imputed = impute_missing_benchmarks(candidate.benchmarks)
 
     # Determine whether primary or alternative benchmark is directly measured
     cand_bench_canon = {k.lower().replace("-", "_").replace(" ", "_"): v for k, v in candidate.benchmarks.items()}
-    measured_list_canon = [m.lower().replace("-", "_").replace(" ", "_") for m in candidate.measured_benchmarks]
+    measured_list_canon = [
+        m.lower().replace("-", "_").replace(" ", "_")
+        for m in getattr(candidate, "measured_benchmarks", [])
+    ]
 
-    if prim_key in measured_list_canon or prim_key in cand_bench_canon:
+    if prim_key in measured_list_canon:
         selected_key = prim_key
         selected_name = prim_name
         is_measured = True
-    elif alt_key in measured_list_canon or alt_key in cand_bench_canon:
+    elif alt_key in measured_list_canon:
         selected_key = alt_key
         selected_name = alt_name
         is_measured = True
+    elif prim_key in cand_bench_canon:
+        selected_key = prim_key
+        selected_name = prim_name
+        is_measured = prim_key in measured_list_canon if measured_list_canon else True
+    elif alt_key in cand_bench_canon:
+        selected_key = alt_key
+        selected_name = alt_name
+        is_measured = alt_key in measured_list_canon if measured_list_canon else True
     else:
         selected_key = prim_key
         selected_name = prim_name
@@ -66,7 +86,7 @@ def generate_proof_citation(
     if candidate.proof_justification:
         bullets.append(candidate.proof_justification)
     else:
-        bullets.append(f"Excels at {task_clean.replace('_', ' ')} workloads scoring {bench_score:.1f}% on {selected_name}.")
+        bullets.append(f"Excels at {effective_domain.replace('_', ' ')} workloads scoring {bench_score:.1f}% on {selected_name}.")
 
     bullets.append(
         f"Fits within hardware budget: {ram_allocated:.1f} MB allocated with {ram_headroom:.1f} MB safety headroom under {budget_mb:.1f} MB ceiling."
@@ -229,6 +249,7 @@ def generate_recommendations_markdown(
                     task=user_needs.task,
                     eval_result=sc.evaluation,
                     budget_mb=sc.evaluation.budget_ceiling_mb,
+                    custom_intent=user_needs.custom_intent,
                 )
             lines.append("\n" + generate_proof_citation_card(proof_cit))
 

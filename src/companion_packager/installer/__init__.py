@@ -2,6 +2,7 @@
 
 from companion_packager.installer.configurator import (
     create_desktop_shortcut,
+    generate_config,
     inject_agent_companion_config,
     resolve_companion_path,
 )
@@ -35,6 +36,7 @@ __all__ = [
     "DownloadChecksumError",
     "DiskSpaceError",
     "inject_agent_companion_config",
+    "generate_config",
     "create_desktop_shortcut",
     "resolve_companion_path",
     "stage_and_build_monorepo_wheels",

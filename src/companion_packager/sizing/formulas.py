@@ -1,7 +1,15 @@
 """Mathematical hardware sizing, memory budget, and throughput formulas."""
 
-from typing import Optional
-from companion_packager.schemas import CandidateModel, HardwareProfile, SizingEvaluation
+from typing import Dict, Optional
+from companion_packager.schemas import (
+    CandidateModel,
+    ConcurrencyScenario,
+    ConcurrencyScenarioBudget,
+    HardwareProfile,
+    ProcessMemorySummary,
+    SizingEvaluation,
+)
+from companion_packager.hardware.process_inspector import audit_active_processes
 
 RAM_CEILING_MB: float = 6144.0
 CUDA_OVERHEAD_MB: float = 500.0
@@ -118,10 +126,11 @@ def calculate_ram_penalty(
 def evaluate_sizing(
     candidate: CandidateModel,
     hardware: HardwareProfile,
-    context_tokens: int,
+    context_tokens: int = 16384,
     bits_per_weight: float = 4.5,
     sparsity_speedup: float = 0.0,
     clean_state: bool = True,
+    budget_ceiling_override_mb: Optional[float] = None,
 ) -> SizingEvaluation:
     """Evaluate candidate model hardware feasibility, memory budget, and projected throughput."""
     dedicated_gpus = [
@@ -154,7 +163,10 @@ def evaluate_sizing(
         overhead_mb = CUDA_OVERHEAD_MB if is_gpu else CPU_OVERHEAD_MB
         active_weight_ratio = candidate.active_weight_ratio
 
-    budget_ceiling_mb = calculate_budget_ceiling_mb(hardware, clean_state=clean_state)
+    if budget_ceiling_override_mb is not None:
+        budget_ceiling_mb = budget_ceiling_override_mb
+    else:
+        budget_ceiling_mb = calculate_budget_ceiling_mb(hardware, clean_state=clean_state)
 
     # Context Clamping on CPU under 6144 MB ceiling
     if "cpu" in target_device.lower():
@@ -224,3 +236,118 @@ def evaluate_sizing(
         ram_penalty=round(ram_penalty, 4),
         rejection_reason=rejection_reason,
     )
+
+
+def calculate_scenario_budgets(
+    hardware: HardwareProfile,
+    process_summary: Optional[ProcessMemorySummary] = None,
+) -> Dict[ConcurrencyScenario, ConcurrencyScenarioBudget]:
+    """Calculate operational concurrency memory budgets across Parallel, Minimal, and Dedicated modes."""
+    if process_summary is None:
+        process_summary = audit_active_processes()
+
+    is_cpu = "cpu" in hardware.backend_target.lower() or not bool(hardware.gpus)
+
+    if is_cpu:
+        ceiling_host = min(hardware.ram_total_mb * 0.70, RAM_CEILING_MB)
+        ram_avail = hardware.ram_avail_mb
+        non_reclaimable = (
+            process_summary.ides_mb + process_summary.dev_runtimes_mb + process_summary.system_mb
+        )
+
+        # Parallel Mode
+        reclaimable_par = 0.0
+        budget_par = round(min(ram_avail * 0.75, ceiling_host), 1)
+        budget_parallel = ConcurrencyScenarioBudget(
+            scenario=ConcurrencyScenario.PARALLEL,
+            title="Parallel Coexistence",
+            description="Runs smoothly alongside active IDEs, open browser tabs, and dev runtimes without disruption.",
+            available_ram_mb=round(ram_avail, 1),
+            reclaimable_ram_mb=reclaimable_par,
+            budget_ceiling_mb=budget_par,
+        )
+
+        # Minimal Interference Mode
+        reclaimable_min = round(0.50 * (process_summary.browsers_mb + process_summary.other_mb), 1)
+        effective_avail = min(
+            ram_avail + reclaimable_min,
+            max(1024.0, hardware.ram_total_mb - non_reclaimable),
+        )
+        budget_min = round(min(effective_avail * 0.80, ceiling_host), 1)
+        budget_minimal = ConcurrencyScenarioBudget(
+            scenario=ConcurrencyScenario.MINIMAL_INTERFERENCE,
+            title="Minimal Interference",
+            description="Reclaims ~50% dormant browser and background memory while keeping developer IDEs intact.",
+            available_ram_mb=round(ram_avail, 1),
+            reclaimable_ram_mb=reclaimable_min,
+            budget_ceiling_mb=budget_min,
+        )
+
+        # Dedicated Alone Mode
+        reclaimable_ded = round(process_summary.browsers_mb + process_summary.other_mb, 1)
+        max_unencumbered = max(ram_avail, hardware.ram_total_mb - non_reclaimable) * 0.85
+        budget_ded = round(min(ceiling_host, max_unencumbered), 1)
+        budget_dedicated = ConcurrencyScenarioBudget(
+            scenario=ConcurrencyScenario.DEDICATED,
+            title="Dedicated Alone",
+            description="Maximum capacity assuming background apps are closed and workstation is dedicated to Assistant.",
+            available_ram_mb=round(ram_avail, 1),
+            reclaimable_ram_mb=reclaimable_ded,
+            budget_ceiling_mb=budget_ded,
+        )
+
+    else:
+        primary_gpu = max(hardware.gpus, key=lambda g: g.vram_total_mb)
+        has_free_vram = primary_gpu.vram_free_mb is not None and primary_gpu.vram_free_mb > 0
+        vram_free = (
+            primary_gpu.vram_free_mb
+            if has_free_vram
+            else primary_gpu.vram_total_mb * 0.80
+        )
+        ceiling_host = (
+            min(primary_gpu.vram_total_mb * 0.80, vram_free * 0.95)
+            if has_free_vram
+            else primary_gpu.vram_total_mb * 0.80
+        )
+
+        # Parallel
+        reclaimable_par = 0.0
+        budget_par = round(min(vram_free * 0.80, ceiling_host), 1)
+        budget_parallel = ConcurrencyScenarioBudget(
+            scenario=ConcurrencyScenario.PARALLEL,
+            title="Parallel Coexistence",
+            description="Runs smoothly alongside active desktop applications within free VRAM allocation.",
+            available_ram_mb=round(vram_free, 1),
+            reclaimable_ram_mb=reclaimable_par,
+            budget_ceiling_mb=budget_par,
+        )
+
+        # Minimal Interference
+        reclaimable_min = 0.0
+        budget_min = round(min(vram_free * 0.90, ceiling_host), 1)
+        budget_minimal = ConcurrencyScenarioBudget(
+            scenario=ConcurrencyScenario.MINIMAL_INTERFERENCE,
+            title="Minimal Interference",
+            description="Optimized VRAM allocation assuming minor GPU background processes can yield memory.",
+            available_ram_mb=round(vram_free, 1),
+            reclaimable_ram_mb=reclaimable_min,
+            budget_ceiling_mb=budget_min,
+        )
+
+        # Dedicated Alone
+        reclaimable_ded = 0.0
+        budget_ded = round(ceiling_host, 1)
+        budget_dedicated = ConcurrencyScenarioBudget(
+            scenario=ConcurrencyScenario.DEDICATED,
+            title="Dedicated Alone",
+            description="Maximum capacity assuming GPU is dedicated solely to Assistant inference.",
+            available_ram_mb=round(vram_free, 1),
+            reclaimable_ram_mb=reclaimable_ded,
+            budget_ceiling_mb=budget_ded,
+        )
+
+    return {
+        ConcurrencyScenario.PARALLEL: budget_parallel,
+        ConcurrencyScenario.MINIMAL_INTERFERENCE: budget_minimal,
+        ConcurrencyScenario.DEDICATED: budget_dedicated,
+    }

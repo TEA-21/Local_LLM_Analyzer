@@ -2,7 +2,7 @@
 
 ## Current Active Phase & Status
 - **Current Phase:** Phase 10: Dynamic Process Audit, 3-Scenario Operational Concurrency & Multi-Tier Model Optimization
-- **Subtask Status:** Spec Review Gate 100% PASSED (Goldfish Passed, Argon Passed via Frozen Script File Attachment).
+- **Subtask Status:** Phase 10 Subtask 4 (Concurrency Recommender & Interactive Table CLI) 100% COMPLETE & VERIFIED. Phase 10 fully complete.
 - **argon_audit_runs:** 4
 - **Argon Spec Audit Verdict:** VERDICT: PASS (Confirmed mathematical grounding, formula correctness, multi-scenario concurrency partitioning, and robust cross-platform packaging).
 - **Goldfish Spec Audit Verdict:** VERDICT: PASS (Re-audit #3 confirmed all 5 items resolved, 0 unstated assumptions, 0 ambiguities).
@@ -89,54 +89,134 @@
     - `installer/configurator.py`:
       - Generated `agent_companion.env` populated with `AGENT_COMPANION_BACKEND` (`colibri_ternary`, `cpu_llama`, or `cuda`), `AGENT_COMPANION_CONTEXT_LENGTH` (4096 for 27B CPU, 8192 for 7B CPU, 32768 for GPU), `AGENT_COMPANION_MAX_RAM_MB=5200.0`, `AGENT_COMPANION_RAM_CEILING_MB=6144.0`, and `AGENT_COMPANION_AIRGAP_ENFORCED=true`.
       - Launcher `start_companion.py` includes `HardwareProfiler.RAM_CEILING_MB <= 6144.0` guard assertion for CPU backend.
+11. **Phase 10 Subtask 1 - Process Inspection Subsystem & Domain Schemas:**
+    - Defined `ProcessCategory(str, Enum)` with categories: `browsers`, `ides`, `dev_runtimes`, `system`, `other`.
+    - Defined `ProcessMemorySummary(BaseModel)` with category megabytes, total scanned MB, and top 5 process list.
+    - Defined `ConcurrencyScenario(str, Enum)` with `parallel`, `minimal_interference`, and `dedicated`.
+    - Defined `ConcurrencyScenarioBudget(BaseModel)` with scenario, title, description, RAM stats, budget ceiling, and recommended scorecard.
+    - Updated `src/companion_packager/schemas.py` and converted `src/companion_packager/models/schemas.py` into a re-export shim (`from companion_packager.schemas import *`).
+    - Implemented `audit_active_processes() -> ProcessMemorySummary` in `src/companion_packager/hardware/process_inspector.py`:
+      - Cross-platform executable normalization (`removesuffix('.exe')`).
+      - Delimited token-bounded matching to eliminate false positive collisions (e.g., `codec`, `mongodb`, `xcodebuild` correctly mapped to `other`).
+      - Robust error handling silently catching `NoSuchProcess`, `AccessDenied`, and `ZombieProcess`.
+      - Extracted top 5 processes by RSS descending with name, rss_mb, category, and pid.
+    - Re-exported `audit_active_processes`, `ProcessCategory`, and `ProcessMemorySummary` in `src/companion_packager/hardware/__init__.py`.
+    - Created unit & live integration tests in `tests/test_process_inspector.py`.
+12. **Phase 10 Subtask 2 - Concurrency Scenario Budget Formulation & Sizing Overrides (`formulas.py`, `sizing/__init__.py`):**
+    - Updated `evaluate_sizing()` signature with `budget_ceiling_override_mb: Optional[float] = None` and default `context_tokens: int = 16384`.
+    - Implemented override bypass: `budget_ceiling_override_mb` takes immediate precedence over `calculate_budget_ceiling_mb(hardware, clean_state=clean_state)`.
+    - Implemented `calculate_scenario_budgets(hardware, process_summary=None) -> Dict[ConcurrencyScenario, ConcurrencyScenarioBudget]`:
+      - Automatic fallback to `audit_active_processes()` when `process_summary is None`.
+      - CPU Host Branch:
+        - $M_{\text{ceiling\_host}} = \min(M_{\text{ram\_total}} \times 0.70, 6144.0\text{ MB})$.
+        - Non-reclaimable memory: $M_{\text{ides}} + M_{\text{dev\_runtimes}} + M_{\text{system}}$.
+        - Parallel: $M_{\text{budget\_parallel}} = \min(M_{\text{ram\_avail}} \times 0.75, M_{\text{ceiling\_host}})$, $M_{\text{reclaimable}} = 0.0\text{ MB}$.
+        - Minimal Interference: $M_{\text{reclaimable}} = 0.50 \times (M_{\text{browsers}} + M_{\text{other}})$, effective available memory clamped by $\max(1024.0, M_{\text{ram\_total}} - \text{non\_reclaimable})$, $M_{\text{budget\_minimal}} = \min(\text{effective\_available} \times 0.80, M_{\text{ceiling\_host}})$.
+        - Dedicated Alone: $M_{\text{reclaimable}} = M_{\text{browsers}} + M_{\text{other}}$, $M_{\text{budget\_dedicated}} = \min(M_{\text{ceiling\_host}}, \max(M_{\text{ram\_avail}}, M_{\text{ram\_total}} - \text{non\_reclaimable}) \times 0.85)$.
+      - GPU Execution Branch:
+        - Free VRAM detection with fallback to $0.80 \times M_{\text{vram\_total}}$ when free VRAM is missing/0.
+        - Host ceiling: $\min(M_{\text{vram\_total}} \times 0.80, M_{\text{vram\_free}} \times 0.95)$.
+        - Parallel budget: $\min(M_{\text{vram\_free}} \times 0.80, M_{\text{ceiling\_host}})$.
+        - Minimal budget: $\min(M_{\text{vram\_free}} \times 0.90, M_{\text{ceiling\_host}})$.
+        - Dedicated budget: $M_{\text{ceiling\_host}}$.
+      - Guarded against empty GPU lists by falling back safely to CPU host formulations.
+    - Exported `calculate_scenario_budgets` in `src/companion_packager/sizing/__init__.py`.
+    - Added unit and scenario tests covering CPU, GPU, override precedence, reclaimable RAM clamping under heavy Docker/WSL2 holds, and empty GPU fallback in `tests/test_formulas.py` and `tests/test_sizing_formulas.py`.
+13. **Phase 10 Subtask 3 - Airgapped Benchmarks Cache Expansion & Multi-Tier Model Optimization (`benchmarks_cache.json`, `benchmarks.py`, `citations.py`):**
+    - Expanded `src/companion_packager/research/benchmarks_cache.json` from 15 to 20 models by appending 5 optimized candidate models:
+      - `bartowski/Meta-Llama-3.1-8B-Instruct-GGUF` at `Q3_K_M` (3740.0 MB, EQ-Bench 74.8, MT-Bench 8.6, Arena-Elo 1200.0, 32 layers, 8 KV heads, 128 head_dim).
+      - `Qwen/Qwen2.5-7B-Instruct-GGUF` at `Q3_K_M` (3560.0 MB, IFEval 80.4, MMLU-Pro 56.2, Arena-Elo 1205.0, 28 layers, 4 KV heads, 128 head_dim).
+      - `Qwen/Qwen2.5-14B-Instruct-GGUF` at `Q3_K_M` (6980.0 MB, IFEval 85.1, MMLU-Pro 64.8, Arena-Elo 1260.0, 48 layers, 8 KV heads, 128 head_dim).
+      - `unsloth/DeepSeek-R1-Distill-Qwen-7B-GGUF` at `Q3_K_M` (3560.0 MB, GSM8K 91.4, MATH 77.5, 28 layers, 4 KV heads, 128 head_dim).
+      - `unsloth/DeepSeek-R1-Distill-Qwen-14B-GGUF` at `Q3_K_M` (6980.0 MB, GSM8K 93.9, MATH 80.2, 48 layers, 8 KV heads, 128 head_dim).
+    - Implemented `resolve_custom_domain(custom_intent: Optional[str]) -> str` in `src/companion_packager/research/benchmarks.py` with multi-token keyword resolution across `coding`, `reasoning_math`, `creative_writing`, `summarization`, and `general_desktop`.
+    - Added `custom_intent: Optional[str] = None` to `normalize_benchmarks`, dynamically routing `task="custom"` through `resolve_custom_domain`.
+    - Updated `generate_proof_citation` in `src/companion_packager/research/citations.py` to route `task="custom"` using `resolve_custom_domain(custom_intent)` for Pillar 1 benchmark selection, and verified provenance tags (`[Measured]` vs `[Estimated]`).
+    - Connected `custom_intent=user_needs.custom_intent` through `recommender.py` and `generate_recommendations_markdown`.
+    - Re-exported `resolve_custom_domain` via `companion_packager.research`.
+14. **Phase 10 Subtask 4 - Concurrency Recommender & Interactive Table CLI (`recommender.py`, `cli.py`, `configurator.py`, `schemas.py`):**
+    - Updated `rank_candidates(...)` in `src/companion_packager/sizing/recommender.py`:
+      - Added `budget_ceiling_override_mb: Optional[float] = None` and forwarded directly to `evaluate_sizing`.
+      - Refined domain classification rules: `is_code_model`, `is_prose_model` (`llama-3.1`/`mistral` excluding `3.2-3b`), `is_summary_model` (`qwen2.5` non-coder), `is_math_model` (`r1`/`math`), and `is_desktop_model` (including `qwen2.5-7b` under `general_desktop`/`custom`).
+    - Implemented `evaluate_all_concurrency_scenarios(...)`:
+      - Automatically executes process memory audit or takes provided `ProcessMemorySummary`.
+      - Generates scenario budgets for `PARALLEL`, `MINIMAL_INTERFERENCE`, and `DEDICATED`.
+      - Evaluates and ranks candidate models per scenario using `hard_exclude=True` and scenario budget ceiling overrides.
+      - Populates `recommended_scorecard` with top valid candidate that fits.
+    - Implemented `display_concurrency_scenarios_table(...)`:
+      - Displays active process breakdown across Browsers, IDEs, Dev Runtimes, Other, and Scanned Total.
+      - Formats Rich terminal table displaying Scenario, RAM Budget, Recommended Model, Quant, Est. Speed, RAM Footprint, Headroom, and Headline Proof / Benchmark metrics.
+      - Gracefully handles scenarios where no candidates fit with red warning status.
+    - Exported `evaluate_all_concurrency_scenarios` and `display_concurrency_scenarios_table` in `src/companion_packager/sizing/__init__.py`.
+    - Extended `src/companion_packager/schemas.py`:
+      - Added `headline_metric_name`, `headline_metric_value`, and `headline_metric_tag` properties on `ProofCitation`.
+    - Updated `src/companion_packager/cli.py`:
+      - `recommend` command: Added `--scenario` option, dynamically audits processes, displays 3-scenario table, prompts user in interactive mode (or applies CLI flag / defaults to parallel), renders full scorecard and proof citation for chosen scenario, and exports `RECOMMENDATIONS.md`.
+      - `build` command: Added `--task`, `--priority`, `--scenario`, `--target-os`, `--target-arch` options. Computes scenario budget, injects scenario config, and writes `installer_manifest.json` into bundle directory.
+      - `install` command: Added `--manifest` and `--scenario` options. Resolves manifest from bundle or install directory, extracting scenario and model path for offline installation.
+    - Updated `src/companion_packager/installer/configurator.py`:
+      - Added `scenario: Optional[ConcurrencyScenarioBudget] = None` to `inject_agent_companion_config` and aliased `generate_config`.
+      - Sets `AGENT_COMPANION_MAX_RAM_MB = round(scenario.budget_ceiling_mb, 1)` when scenario is provided.
+      - Enforces `AGENT_COMPANION_RAM_CEILING_MB = 6144.0` CPU invariant.
+      - Injected runtime warning into `start_companion.py` if free RAM drops below 70% of scenario threshold.
+    - Exported `generate_config` in `src/companion_packager/installer/__init__.py`.
 
 ---
 
 ## Files Created, Modified, or Removed
+- **Created:**
+  - `src/companion_packager/hardware/process_inspector.py`
+  - `tests/test_process_inspector.py`
 - **Modified:**
   - `src/companion_packager/schemas.py`
+  - `src/companion_packager/models/schemas.py`
+  - `src/companion_packager/hardware/__init__.py`
   - `src/companion_packager/sizing/formulas.py`
+  - `src/companion_packager/sizing/__init__.py`
+  - `src/companion_packager/sizing/recommender.py`
+  - `src/companion_packager/research/__init__.py`
   - `src/companion_packager/research/benchmarks.py`
   - `src/companion_packager/research/benchmarks_cache.json`
-  - `src/companion_packager/sizing/recommender.py`
+  - `src/companion_packager/research/citations.py`
   - `src/companion_packager/installer/configurator.py`
+  - `src/companion_packager/installer/__init__.py`
+  - `src/companion_packager/cli.py`
   - `tests/test_sizing_formulas.py`
   - `tests/test_formulas.py`
   - `tests/test_research.py`
   - `tests/test_domain_proof.py`
   - `tests/test_recommender.py`
   - `tests/test_configurator.py`
+  - `tests/test_cli.py`
 
 ---
 
 ## Test Results & Verification Logs
-- `pytest -v tests/test_sizing_formulas.py`: 15/15 PASSED in 0.05s
-- `pytest -v tests/test_formulas.py`: 10/10 PASSED in 0.04s
-- `pytest -v tests/test_research.py`: 10/10 PASSED in 0.56s
-- `pytest -v tests/test_domain_proof.py`: 15/15 PASSED in 0.12s
-- `pytest -v tests/test_recommender.py`: 11/11 PASSED in 0.13s
-- `pytest -v tests/test_configurator.py`: 11/11 PASSED in 1.30s
-- **Full Test Suite (`pytest`):** 146/146 PASSED in 25.15s (100% pass rate, zero regressions)
+- `pytest -v tests/test_recommender.py tests/test_cli.py tests/test_configurator.py`: 43/43 PASSED in 31.27s (100% pass rate)
+- Full project test suite `pytest`: 176/176 PASSED in 63.53s (100% pass rate, zero regressions)
 
 ---
 
 ## Orchestrator Handoff Context
-- Subtasks 1 and 2 of Phase 9 are 100% complete and fully verified:
-  - Global benchmark de-biasing active: Non-coder models strictly bounded to SWE <= 25.0% and HumanEval <= 65.0% during imputation.
-  - Domain classification & affinity bonuses verified across all 6 domains (+0.10 domain bonus, +0.15 Colibri AVX-512 CPU bonus).
-  - Backend-aware TargetTokSec operational across CPU (8.0/15.0/5.0) and GPU (15.0/30.0/8.0).
-  - Runtime environment configurator injector updated to emit `AGENT_COMPANION_BACKEND`, `AGENT_COMPANION_CONTEXT_LENGTH` (4096 / 8192 / 32768), `AGENT_COMPANION_MAX_RAM_MB=5200.0`, `AGENT_COMPANION_RAM_CEILING_MB=6144.0`, and `AGENT_COMPANION_AIRGAP_ENFORCED=true`.
-  - Python runtime launcher template enforces `HardwareProfiler.RAM_CEILING_MB <= 6144.0` assertion on CPU backends.
-  - Zero regressions across the entire 146-test suite.
+- Phase 10 Subtask 4 and the entirety of Phase 10 are 100% complete and verified:
+  - 3-scenario operational concurrency evaluation and terminal reporting are active across `evaluate_all_concurrency_scenarios`, `display_concurrency_scenarios_table`, and `companion-packager recommend`.
+  - On 16GB CPU host, in Dedicated mode: 7B/8B/Colibri models win across Creative Writing, Summarization, and Coding.
+  - In tight Parallel mode: 1.5B/3B models win to avoid host multitasking interference.
+  - `build` stages `installer_manifest.json` and injects exact scenario RAM thresholds.
+  - `install` auto-detects manifest configuration for zero-friction setup.
+  - Full test suite passes with 176 passing tests.
 
 ---
 
 ## Active Gotchas & Failed Paths
-- Colibri 1.49 bits rate on 27.0B parameters yields `(27e9 * 1.49) / (8 * 1024^2) = 4795.7897 MB` (~4795.79 MB), satisfying `<= 4800.0 MB`.
-- In `test_context_clamping_27b_and_7b_cpu`, Qwen 7B at 8192 context has initial FP16 KV cache of 448 MB (total 5328 MB > 0.80 * 6144 MB = 4915.2 MB), which automatically and correctly triggers Q8_0 KV cache fallback to 224 MB (total 5104 MB <= 6144 MB).
-- Under Phase 9 max_iq weighting profile (0.70/0.15/0.15), total score for top models is bounded by `0.70 * 1.0 + 0.15 * 1.0 = 0.8500`. Tied candidate models resolve via parameter count descending.
+- Substring checks on process names cause collisions (e.g., `code` in `codec`, `go` in `mongodb`); exact token matching with delimiter substitution (`-`, `_`) strictly eliminates false positives.
+- `psutil.process_iter` can throw transient `NoSuchProcess` or `AccessDenied` on ephemeral host processes; caught and ignored silently.
+- When `primary_gpu.vram_free_mb` is 0.0 or unqueried, GPU ceiling must fall back to `primary_gpu.vram_total_mb * 0.80` instead of multiplying `0.0 * 0.95`.
+- Adding lighter Q3_K_M quant models can yield higher throughput and rank above Q4_K_M in balanced scorecards; test assertions filtering by repo_id must distinguish between quant methods when checking specific target fit scores.
+- Terminal table cell wrapping splits multiline strings across lines in Rich console; tests asserting on table output should check tokens independently or account for column boundary splits.
+- Standard library `json` must be explicitly imported in `cli.py` for manifest serialization and deserialization.
 
 ---
 
 ## Next Immediate Action
-- Hand off completed Subtask 2 results to Orchestrator agent via `send_message`.
+- Complete subagent handoff to Elephant Orchestrator. All Phase 10 tasks verified and closed.

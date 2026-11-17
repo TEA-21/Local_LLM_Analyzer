@@ -1,7 +1,15 @@
 """Unit tests for mathematical hardware sizing and throughput formulas."""
 
 import pytest
-from companion_packager.schemas import CandidateModel, GPUInfo, HardwareProfile, SizingEvaluation
+from companion_packager.schemas import (
+    CandidateModel,
+    ConcurrencyScenario,
+    ConcurrencyScenarioBudget,
+    GPUInfo,
+    HardwareProfile,
+    ProcessMemorySummary,
+    SizingEvaluation,
+)
 from companion_packager.sizing.formulas import (
     CPU_OVERHEAD_MB,
     CUDA_OVERHEAD_MB,
@@ -9,6 +17,7 @@ from companion_packager.sizing.formulas import (
     calculate_budget_ceiling_mb,
     calculate_kv_cache_mb,
     calculate_ram_penalty,
+    calculate_scenario_budgets,
     calculate_weights_mb,
     estimate_tokens_per_second,
     evaluate_sizing,
@@ -392,3 +401,242 @@ def test_evaluate_sizing_kv_cache_q8_fallback():
     assert eval_res.fits is True
     assert eval_res.kv_cache_mb == 448.0
     assert eval_res.total_ram_mb == 2500.0 + 448.0 + 200.0
+
+
+def test_evaluate_sizing_budget_ceiling_override():
+    """Verify budget_ceiling_override_mb takes precedence and updates fits and penalty."""
+    hw = HardwareProfile(
+        os_name="windows",
+        cpu_brand="Intel Core i7-1165G7",
+        cpu_arch="x86_64",
+        physical_cores=4,
+        logical_cores=8,
+        has_avx512=True,
+        has_avx2=True,
+        has_neon=False,
+        ram_total_mb=16384.0,
+        ram_avail_mb=12000.0,
+        disk_free_gb=100.0,
+        gpus=[],
+        bandwidth_gb_s=30.0,
+        backend_target="cpu",
+    )
+
+    cand = CandidateModel(
+        repo_id="Qwen/Qwen2.5-Coder-7B-Instruct-GGUF",
+        filename="qwen2.5-coder-7b-instruct-q4_k_m.gguf",
+        quant_method="Q4_K_M",
+        param_count_billions=7.61,
+        size_mb=4680.0,
+        context_window=32768,
+        num_layers=28,
+        num_kv_heads=4,
+        head_dim=128,
+    )
+
+    # Standard clean_state evaluation: ceiling is 6144.0 MB, model fits with total 5104.0 MB
+    eval_std = evaluate_sizing(cand, hw, context_tokens=16384, clean_state=True)
+    assert eval_std.budget_ceiling_mb == 6144.0
+    assert eval_std.fits is True
+
+    # With override to 4800.0 MB: total_ram_mb (5104.0 MB) exceeds 4800.0 MB
+    eval_low = evaluate_sizing(
+        cand, hw, context_tokens=16384, clean_state=True, budget_ceiling_override_mb=4800.0
+    )
+    assert eval_low.budget_ceiling_mb == 4800.0
+    assert eval_low.fits is False
+    assert eval_low.ram_penalty == 1000.0
+    assert "exceeds budget ceiling (4800.0 MB)" in eval_low.rejection_reason
+
+    # With override to 5500.0 MB: total_ram_mb (5104.0 MB) fits under 5500.0 MB
+    # Headroom threshold = 0.875 * 5500.0 = 4812.5 MB.
+    # 5104.0 > 4812.5 -> non-zero penalty: (5104.0 - 4812.5) / (0.125 * 5500.0) ≈ 0.424
+    eval_high = evaluate_sizing(
+        cand, hw, context_tokens=16384, clean_state=True, budget_ceiling_override_mb=5500.0
+    )
+    assert eval_high.budget_ceiling_mb == 5500.0
+    assert eval_high.fits is True
+    assert eval_high.ram_penalty > 0.0
+    assert eval_high.ram_penalty < 1000.0
+    expected_pen = (5104.0 - 0.875 * 5500.0) / (0.125 * 5500.0)
+    assert pytest.approx(eval_high.ram_penalty, rel=1e-3) == round(expected_pen, 4)
+
+
+def test_calculate_scenario_budgets_cpu():
+    """Verify scenario budgets on CPU profile (16GB RAM): Parallel <= Minimal <= Dedicated <= 6144 MB."""
+    hw = HardwareProfile(
+        os_name="windows",
+        cpu_brand="Intel Core i7-1165G7",
+        cpu_arch="x86_64",
+        physical_cores=4,
+        logical_cores=8,
+        has_avx512=True,
+        has_avx2=True,
+        has_neon=False,
+        ram_total_mb=16384.0,
+        ram_avail_mb=6000.0,
+        disk_free_gb=100.0,
+        gpus=[],
+        bandwidth_gb_s=30.0,
+        backend_target="cpu",
+    )
+    summary = ProcessMemorySummary(
+        browsers_mb=2000.0,
+        ides_mb=1500.0,
+        dev_runtimes_mb=1000.0,
+        system_mb=1500.0,
+        other_mb=1000.0,
+        total_scanned_mb=7000.0,
+    )
+
+    budgets = calculate_scenario_budgets(hw, process_summary=summary)
+
+    par = budgets[ConcurrencyScenario.PARALLEL]
+    min_int = budgets[ConcurrencyScenario.MINIMAL_INTERFERENCE]
+    ded = budgets[ConcurrencyScenario.DEDICATED]
+
+    assert par.scenario == ConcurrencyScenario.PARALLEL
+    assert par.title == "Parallel Coexistence"
+    assert par.reclaimable_ram_mb == 0.0
+    assert par.available_ram_mb == 6000.0
+    # min(6000 * 0.75, 6144.0) = 4500.0
+    assert par.budget_ceiling_mb == 4500.0
+
+    assert min_int.scenario == ConcurrencyScenario.MINIMAL_INTERFERENCE
+    assert min_int.title == "Minimal Interference"
+    # 0.50 * (2000.0 + 1000.0) = 1500.0
+    assert min_int.reclaimable_ram_mb == 1500.0
+    # non_reclaimable = 1500 + 1000 + 1500 = 4000.0
+    # effective_avail = min(6000 + 1500, max(1024.0, 16384 - 4000)) = min(7500, 12384) = 7500.0
+    # min(7500 * 0.80, 6144.0) = min(6000.0, 6144.0) = 6000.0
+    assert min_int.budget_ceiling_mb == 6000.0
+
+    assert ded.scenario == ConcurrencyScenario.DEDICATED
+    assert ded.title == "Dedicated Alone"
+    # 2000.0 + 1000.0 = 3000.0
+    assert ded.reclaimable_ram_mb == 3000.0
+    # max(6000.0, 16384 - 4000) * 0.85 = 12384 * 0.85 = 10526.4
+    # min(6144.0, 10526.4) = 6144.0
+    assert ded.budget_ceiling_mb == 6144.0
+
+    # Invariant: Parallel <= Minimal <= Dedicated <= 6144 MB
+    assert par.budget_ceiling_mb <= min_int.budget_ceiling_mb <= ded.budget_ceiling_mb <= 6144.0
+
+
+def test_calculate_scenario_budgets_gpu():
+    """Verify scenario budgets on GPU profile: Parallel <= Minimal <= Dedicated <= VRAM ceiling."""
+    gpu = GPUInfo(
+        index=0,
+        name="NVIDIA GeForce RTX 4070",
+        vendor="nvidia",
+        vram_total_mb=12288.0,
+        vram_free_mb=10000.0,
+    )
+    hw = HardwareProfile(
+        os_name="windows",
+        cpu_brand="AMD Ryzen 7 7800X3D",
+        cpu_arch="x86_64",
+        physical_cores=8,
+        logical_cores=16,
+        has_avx512=True,
+        has_avx2=True,
+        has_neon=False,
+        ram_total_mb=32768.0,
+        ram_avail_mb=24000.0,
+        disk_free_gb=200.0,
+        gpus=[gpu],
+        bandwidth_gb_s=360.0,
+        backend_target="cuda",
+    )
+
+    budgets = calculate_scenario_budgets(hw)
+    par = budgets[ConcurrencyScenario.PARALLEL]
+    min_int = budgets[ConcurrencyScenario.MINIMAL_INTERFERENCE]
+    ded = budgets[ConcurrencyScenario.DEDICATED]
+
+    # ceiling_host = min(12288 * 0.80, 10000 * 0.95) = min(9830.4, 9500.0) = 9500.0
+    assert par.reclaimable_ram_mb == 0.0
+    # min(10000 * 0.80, 9500.0) = 8000.0
+    assert par.budget_ceiling_mb == 8000.0
+
+    assert min_int.reclaimable_ram_mb == 0.0
+    # min(10000 * 0.90, 9500.0) = 9000.0
+    assert min_int.budget_ceiling_mb == 9000.0
+
+    assert ded.reclaimable_ram_mb == 0.0
+    assert ded.budget_ceiling_mb == 9500.0
+
+    # Invariant: Parallel <= Minimal <= Dedicated <= VRAM ceiling
+    assert par.budget_ceiling_mb <= min_int.budget_ceiling_mb <= ded.budget_ceiling_mb <= 9500.0
+
+
+def test_calculate_scenario_budgets_high_non_reclaimable_memory():
+    """Verify reclaimable RAM is clamped when non-reclaimable memory (Docker/WSL2/IDEs) is high."""
+    hw = HardwareProfile(
+        os_name="linux",
+        cpu_brand="AMD Ryzen 9",
+        cpu_arch="x86_64",
+        physical_cores=12,
+        logical_cores=24,
+        has_avx512=True,
+        has_avx2=True,
+        has_neon=False,
+        ram_total_mb=16384.0,
+        ram_avail_mb=2000.0,
+        disk_free_gb=100.0,
+        gpus=[],
+        bandwidth_gb_s=30.0,
+        backend_target="cpu",
+    )
+    # Heavy container / dev runtimes hold 14000 MB non-reclaimable
+    summary = ProcessMemorySummary(
+        browsers_mb=1500.0,
+        ides_mb=3000.0,
+        dev_runtimes_mb=9000.0,  # e.g. Docker / Kubernetes / WSL2
+        system_mb=2000.0,
+        other_mb=500.0,
+        total_scanned_mb=16000.0,
+    )
+
+    budgets = calculate_scenario_budgets(hw, process_summary=summary)
+    min_int = budgets[ConcurrencyScenario.MINIMAL_INTERFERENCE]
+    ded = budgets[ConcurrencyScenario.DEDICATED]
+
+    # non_reclaimable = 3000 + 9000 + 2000 = 14000.0
+    # hardware.ram_total_mb - non_reclaimable = 16384.0 - 14000.0 = 2384.0
+    # reclaimable = 0.5 * (1500 + 500) = 1000.0
+    # effective_avail would be 2000 + 1000 = 3000, BUT clamped by 2384.0
+    # budget = min(2384.0 * 0.80, 6144.0) = 1907.2
+    assert min_int.budget_ceiling_mb == 1907.2
+
+    # Dedicated: max(2000.0, 2384.0) * 0.85 = 2026.4
+    assert ded.budget_ceiling_mb == 2026.4
+    assert ded.budget_ceiling_mb < 6144.0
+
+
+def test_calculate_scenario_budgets_empty_gpu_fallback():
+    """Verify empty GPU list falls back to CPU calculations safely without exceptions."""
+    hw = HardwareProfile(
+        os_name="windows",
+        cpu_brand="Intel Core i5",
+        cpu_arch="x86_64",
+        physical_cores=4,
+        logical_cores=8,
+        has_avx512=False,
+        has_avx2=True,
+        has_neon=False,
+        ram_total_mb=8192.0,
+        ram_avail_mb=4000.0,
+        disk_free_gb=50.0,
+        gpus=[],  # Empty GPU list
+        bandwidth_gb_s=25.0,
+        backend_target="cuda",  # Backend is cuda, but no physical GPUs present
+    )
+    budgets = calculate_scenario_budgets(hw)
+    assert ConcurrencyScenario.PARALLEL in budgets
+    assert ConcurrencyScenario.MINIMAL_INTERFERENCE in budgets
+    assert ConcurrencyScenario.DEDICATED in budgets
+
+    # Should use CPU ceiling: min(8192 * 0.70, 6144.0) = 5734.4
+    ded = budgets[ConcurrencyScenario.DEDICATED]
+    assert ded.budget_ceiling_mb <= 5734.4

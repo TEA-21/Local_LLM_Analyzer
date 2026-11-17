@@ -8,14 +8,19 @@ from companion_packager.interview.questionnaire import ask_user_needs
 from companion_packager.research.benchmarks import load_benchmarks_cache
 from companion_packager.schemas import (
     CandidateModel,
+    ConcurrencyScenario,
+    ConcurrencyScenarioBudget,
     GPUInfo,
     HardwareProfile,
+    ProcessMemorySummary,
     Scorecard,
     UserNeeds,
 )
 from companion_packager.sizing.recommender import (
     PERMISSIVE_LICENSES,
+    display_concurrency_scenarios_table,
     display_scorecard_table,
+    evaluate_all_concurrency_scenarios,
     rank_candidates,
 )
 
@@ -379,3 +384,224 @@ def test_display_scorecard_table():
     assert "Qwen2.5-Coder" in output
     assert "Rank" in output
     assert "Quant" in output
+
+
+def test_evaluate_all_concurrency_scenarios_cpu_and_gpu():
+    """Verify evaluate_all_concurrency_scenarios returns all 3 scenarios on CPU and GPU profiles."""
+    candidates = load_benchmarks_cache()
+
+    # CPU Profile
+    cpu_hw = HardwareProfile(
+        os_name="windows",
+        cpu_brand="Intel Core i7-1165G7",
+        cpu_arch="x86_64",
+        physical_cores=4,
+        logical_cores=8,
+        has_avx512=True,
+        has_avx2=True,
+        has_neon=False,
+        ram_total_mb=16384.0,
+        ram_avail_mb=10000.0,
+        disk_free_gb=100.0,
+        gpus=[],
+        backend_target="cpu",
+    )
+    needs = UserNeeds(task="coding", priority="balanced")
+    ps = ProcessMemorySummary(browsers_mb=3000.0, ides_mb=1500.0, dev_runtimes_mb=500.0, system_mb=1000.0, other_mb=500.0, total_scanned_mb=6500.0)
+
+    cpu_scenarios = evaluate_all_concurrency_scenarios(cpu_hw, needs, candidates, process_summary=ps)
+    assert len(cpu_scenarios) == 3
+    assert cpu_scenarios[0].scenario == ConcurrencyScenario.PARALLEL
+    assert cpu_scenarios[1].scenario == ConcurrencyScenario.MINIMAL_INTERFERENCE
+    assert cpu_scenarios[2].scenario == ConcurrencyScenario.DEDICATED
+    for sc in cpu_scenarios:
+        assert sc.budget_ceiling_mb <= 6144.0
+        assert sc.recommended_scorecard is not None
+        assert sc.recommended_scorecard.evaluation.fits is True
+
+    # GPU Profile
+    gpu_hw = HardwareProfile(
+        os_name="windows",
+        cpu_brand="AMD Ryzen 9",
+        cpu_arch="x86_64",
+        physical_cores=16,
+        logical_cores=32,
+        has_avx512=True,
+        has_avx2=True,
+        has_neon=False,
+        ram_total_mb=65536.0,
+        ram_avail_mb=48000.0,
+        disk_free_gb=500.0,
+        gpus=[
+            GPUInfo(
+                index=0,
+                name="NVIDIA RTX 4090",
+                vendor="nvidia",
+                vram_total_mb=24576.0,
+                vram_free_mb=22000.0,
+            )
+        ],
+        backend_target="cuda",
+    )
+    gpu_scenarios = evaluate_all_concurrency_scenarios(gpu_hw, needs, candidates, process_summary=ps)
+    assert len(gpu_scenarios) == 3
+    for sc in gpu_scenarios:
+        assert sc.recommended_scorecard is not None
+        assert sc.recommended_scorecard.evaluation.fits is True
+
+
+def test_16gb_cpu_dedicated_wins_7b_8b_colibri_across_tasks():
+    """Verify on 16GB CPU host in Dedicated mode: 7B/8B/Colibri models win across Creative Writing, Summarization, and Coding."""
+    candidates = load_benchmarks_cache()
+    hw = HardwareProfile(
+        os_name="windows",
+        cpu_brand="Intel Core i7-1165G7",
+        cpu_arch="x86_64",
+        physical_cores=4,
+        logical_cores=8,
+        has_avx512=True,
+        has_avx2=True,
+        has_neon=False,
+        ram_total_mb=16384.0,
+        ram_avail_mb=12000.0,
+        disk_free_gb=100.0,
+        gpus=[],
+        backend_target="cpu",
+    )
+    ps = ProcessMemorySummary(browsers_mb=4000.0, ides_mb=2000.0, dev_runtimes_mb=1000.0, system_mb=1000.0, other_mb=500.0, total_scanned_mb=8500.0)
+
+    # 1. Coding
+    needs_coding = UserNeeds(task="coding", priority="balanced")
+    scenarios_coding = evaluate_all_concurrency_scenarios(hw, needs_coding, candidates, process_summary=ps)
+    dedicated_coding = scenarios_coding[2]
+    assert dedicated_coding.scenario == ConcurrencyScenario.DEDICATED
+    assert dedicated_coding.recommended_scorecard is not None
+    top_coding_repo = dedicated_coding.recommended_scorecard.candidate.repo_id.lower()
+    # Wins with 7B or 27B Colibri model
+    assert "qwen2.5-coder-7b" in top_coding_repo or "ternaryquench" in top_coding_repo
+    assert dedicated_coding.recommended_scorecard.candidate.param_count_billions >= 7.0
+
+    # 2. Creative Writing
+    needs_writing = UserNeeds(task="creative_writing", priority="balanced")
+    scenarios_writing = evaluate_all_concurrency_scenarios(hw, needs_writing, candidates, process_summary=ps)
+    dedicated_writing = scenarios_writing[2]
+    assert dedicated_writing.recommended_scorecard is not None
+    top_writing_repo = dedicated_writing.recommended_scorecard.candidate.repo_id.lower()
+    # Wins with 8B Llama-3.1 or 7B Mistral prose model
+    assert "llama-3.1-8b" in top_writing_repo or "mistral" in top_writing_repo
+    assert dedicated_writing.recommended_scorecard.candidate.param_count_billions >= 7.0
+
+    # 3. Summarization
+    needs_summary = UserNeeds(task="summarization", priority="balanced")
+    scenarios_summary = evaluate_all_concurrency_scenarios(hw, needs_summary, candidates, process_summary=ps)
+    dedicated_summary = scenarios_summary[2]
+    assert dedicated_summary.recommended_scorecard is not None
+    top_summary_repo = dedicated_summary.recommended_scorecard.candidate.repo_id.lower()
+    # Wins with Qwen2.5-7B
+    assert "qwen2.5-7b" in top_summary_repo
+    assert dedicated_summary.recommended_scorecard.candidate.param_count_billions >= 7.0
+
+
+def test_tight_parallel_mode_1_5b_3b_wins():
+    """Verify that in tight Parallel mode (2.5GB free): 1.5B/3B models win to prevent interference."""
+    candidates = load_benchmarks_cache()
+    hw = HardwareProfile(
+        os_name="windows",
+        cpu_brand="Intel Core i7-1165G7",
+        cpu_arch="x86_64",
+        physical_cores=4,
+        logical_cores=8,
+        has_avx512=True,
+        has_avx2=True,
+        has_neon=False,
+        ram_total_mb=16384.0,
+        ram_avail_mb=2500.0,  # Tight available RAM
+        disk_free_gb=100.0,
+        gpus=[],
+        backend_target="cpu",
+    )
+    ps = ProcessMemorySummary(browsers_mb=6000.0, ides_mb=3000.0, dev_runtimes_mb=2000.0, system_mb=1500.0, other_mb=1000.0, total_scanned_mb=13500.0)
+
+    needs = UserNeeds(task="coding", priority="balanced")
+    scenarios = evaluate_all_concurrency_scenarios(hw, needs, candidates, process_summary=ps)
+    parallel = scenarios[0]
+    assert parallel.scenario == ConcurrencyScenario.PARALLEL
+    # In tight parallel mode with 2500 MB avail * 0.75 = 1875 MB budget ceiling, only 1.5B/3B fits
+    assert parallel.recommended_scorecard is not None
+    assert parallel.recommended_scorecard.evaluation.fits is True
+    assert parallel.recommended_scorecard.candidate.param_count_billions <= 3.5
+    assert "1.5b" in parallel.recommended_scorecard.candidate.repo_id.lower() or "3b" in parallel.recommended_scorecard.candidate.repo_id.lower() or "smollm" in parallel.recommended_scorecard.candidate.repo_id.lower()
+
+
+def test_display_concurrency_scenarios_table_normal_and_none():
+    """Verify display_concurrency_scenarios_table renders cleanly with normal and None scorecards."""
+    ps = ProcessMemorySummary(browsers_mb=2048.0, ides_mb=1024.0, dev_runtimes_mb=512.0, other_mb=256.0, total_scanned_mb=3840.0)
+
+    cand = CandidateModel(
+        repo_id="Qwen/Qwen2.5-Coder-1.5B-Instruct-GGUF",
+        filename="qwen2.5-coder-1.5b-instruct-q4_k_m.gguf",
+        quant_method="Q4_K_M",
+        param_count_billions=1.54,
+        size_mb=1150.0,
+    )
+    from companion_packager.schemas import SizingEvaluation, ProofCitation
+    eval_res = SizingEvaluation(
+        fits=True,
+        weights_mb=985.6,
+        kv_cache_mb=128.0,
+        overhead_mb=400.0,
+        total_ram_mb=1513.6,
+        budget_ceiling_mb=3000.0,
+        tokens_per_second=22.5,
+    )
+    proof_cit = ProofCitation(
+        model_id=cand.repo_id,
+        task_benchmark_name="SWE-bench Verified",
+        task_benchmark_score=21.0,
+        is_measured=True,
+        ram_allocated_mb=1513.6,
+        ram_headroom_mb=1486.4,
+        tokens_per_second=22.5,
+    )
+    sc = Scorecard(
+        candidate=cand,
+        evaluation=eval_res,
+        task_fit_score=0.85,
+        latency_score=1.0,
+        final_score=0.88,
+        proof_citation=proof_cit,
+    )
+
+    scenarios = [
+        ConcurrencyScenarioBudget(
+            scenario=ConcurrencyScenario.PARALLEL,
+            title="Parallel Coexistence",
+            description="Background companion",
+            available_ram_mb=4000.0,
+            reclaimable_ram_mb=0.0,
+            budget_ceiling_mb=3000.0,
+            recommended_scorecard=sc,
+        ),
+        ConcurrencyScenarioBudget(
+            scenario=ConcurrencyScenario.MINIMAL_INTERFERENCE,
+            title="Minimal Interference",
+            description="Reclaim idle browsers",
+            available_ram_mb=4000.0,
+            reclaimable_ram_mb=1000.0,
+            budget_ceiling_mb=4000.0,
+            recommended_scorecard=None,  # Tests None branch
+        ),
+    ]
+
+    console = Console(record=True, width=140)
+    display_concurrency_scenarios_table(scenarios, ps, console=console)
+    output = console.export_text()
+
+    assert "Operational Concurrency Scenarios & Hardware Sizing" in output
+    assert "Active Process RAM: Browsers 2048 MB" in output
+    assert "Parallel Coexistence" in output
+    assert "Minimal Interference" in output
+    assert "Qwen2.5-Coder-1.5B" in output
+    assert "SWE-bench Verified: 21.0" in output
+    assert "[Measured]" in output
+    assert "No candidate fits" in output

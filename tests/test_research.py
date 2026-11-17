@@ -27,7 +27,7 @@ from companion_packager.schemas import (
 def test_load_benchmarks_cache_success():
     """Verify that offline benchmarks_cache.json loads valid candidate models."""
     candidates = load_benchmarks_cache()
-    assert len(candidates) >= 7
+    assert len(candidates) == 20
 
     repos = {c.repo_id for c in candidates}
     expected_repos = {
@@ -38,11 +38,16 @@ def test_load_benchmarks_cache_success():
         "Qwen/Qwen2.5-Coder-14B-Instruct-GGUF",
         "penkia/TernaryQuench-Qwen3.8-27B-GGUF",
         "Qwen/Qwen2.5-Coder-32B-Instruct-GGUF",
+        "bartowski/Meta-Llama-3.1-8B-Instruct-GGUF",
+        "Qwen/Qwen2.5-7B-Instruct-GGUF",
+        "Qwen/Qwen2.5-14B-Instruct-GGUF",
+        "unsloth/DeepSeek-R1-Distill-Qwen-7B-GGUF",
+        "unsloth/DeepSeek-R1-Distill-Qwen-14B-GGUF",
     }
     assert expected_repos.issubset(repos)
 
     # Inspect specific model attributes
-    deepseek = next(c for c in candidates if "DeepSeek" in c.repo_id)
+    deepseek = next(c for c in candidates if "DeepSeek-Coder-V2-Lite" in c.repo_id)
     assert deepseek.arch_type == "deepseek_v2"
     assert deepseek.active_weight_ratio == 0.15
     assert deepseek.mla_v_head_dim == 128
@@ -52,6 +57,26 @@ def test_load_benchmarks_cache_success():
     ternary = next(c for c in candidates if "TernaryQuench" in c.repo_id)
     assert ternary.quant_method in ("TERNARY", "Q2_K")
     assert ternary.param_count_billions == 27.0
+
+    # Verify newly added Q3_K_M multi-tier models
+    q3_models = [c for c in candidates if c.quant_method == "Q3_K_M"]
+    assert len(q3_models) == 5
+    q3_filenames = {c.filename for c in q3_models}
+    assert "Meta-Llama-3.1-8B-Instruct-Q3_K_M.gguf" in q3_filenames
+    assert "qwen2.5-7b-instruct-q3_k_m.gguf" in q3_filenames
+    assert "qwen2.5-14b-instruct-q3_k_m.gguf" in q3_filenames
+    assert "DeepSeek-R1-Distill-Qwen-7B-Q3_K_M.gguf" in q3_filenames
+    assert "DeepSeek-R1-Distill-Qwen-14B-Q3_K_M.gguf" in q3_filenames
+
+    llama_q3 = next(c for c in q3_models if "Meta-Llama-3.1-8B" in c.repo_id)
+    assert llama_q3.size_mb == 3740.0
+    assert llama_q3.benchmarks["eq_bench"] == 74.8
+    assert llama_q3.measured_benchmarks == ["eq_bench", "mt_bench_writing", "arena_elo"]
+
+    r1_14b = next(c for c in q3_models if "DeepSeek-R1-Distill-Qwen-14B" in c.repo_id)
+    assert r1_14b.size_mb == 6980.0
+    assert r1_14b.benchmarks["gsm8k"] == 93.9
+    assert r1_14b.num_layers == 48
 
 
 def test_load_benchmarks_cache_missing_file():

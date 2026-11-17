@@ -1,11 +1,19 @@
 """Unit and integration tests for mathematical sizing formulas and Phase 9 Colibri/SpikeBrain harmonization."""
 
 import pytest
-from companion_packager.schemas import CandidateModel, HardwareProfile
+from companion_packager.schemas import (
+    CandidateModel,
+    ConcurrencyScenario,
+    ConcurrencyScenarioBudget,
+    GPUInfo,
+    HardwareProfile,
+    ProcessMemorySummary,
+)
 from companion_packager.sizing.formulas import (
     calculate_budget_ceiling_mb,
     calculate_kv_cache_mb,
     calculate_ram_penalty,
+    calculate_scenario_budgets,
     calculate_weights_mb,
     estimate_tokens_per_second,
     evaluate_sizing,
@@ -234,4 +242,79 @@ def test_ternary_ram_penalty_exemption_under_5750mb():
 
     # Over ceiling -> 1000.0 disqualification
     assert calculate_ram_penalty(6200.0, ceiling, is_ternary=True) == 1000.0
+
+
+def test_ternary_candidate_budget_ceiling_override():
+    """Verify Colibri ternary candidate evaluates properly under budget ceiling override."""
+    cand = CandidateModel(
+        repo_id="penkia/TernaryQuench-Qwen3.8-27B-GGUF",
+        filename="TernaryQuench-Qwen3.8-27B-Q2_K.gguf",
+        quant_method="TERNARY",
+        param_count_billions=27.0,
+        size_mb=4796.0,
+        context_window=32768,
+        num_layers=64,
+        num_kv_heads=8,
+        head_dim=128,
+    )
+    hw = HardwareProfile(
+        os_name="windows",
+        cpu_brand="Intel Core i7-1165G7",
+        cpu_arch="x86_64",
+        physical_cores=4,
+        logical_cores=8,
+        has_avx512=True,
+        has_avx2=True,
+        has_neon=False,
+        ram_total_mb=16384.0,
+        ram_avail_mb=12000.0,
+        disk_free_gb=100.0,
+        gpus=[],
+        bandwidth_gb_s=30.0,
+        backend_target="cpu",
+    )
+    # Total runtime is ~5707.83 MB. Under default clean_state (6144 MB), it fits with 0 penalty (exempt under 5750 MB).
+    eval_default = evaluate_sizing(cand, hw, context_tokens=16384)
+    assert eval_default.fits is True
+    assert eval_default.budget_ceiling_mb == 6144.0
+    assert eval_default.ram_penalty == 0.0
+
+    # With override to 5600.0 MB: total 5707.83 MB exceeds 5600.0 MB -> rejected
+    eval_low = evaluate_sizing(cand, hw, context_tokens=16384, budget_ceiling_override_mb=5600.0)
+    assert eval_low.fits is False
+    assert eval_low.budget_ceiling_mb == 5600.0
+    assert eval_low.ram_penalty == 1000.0
+
+    # With override to 6000.0 MB: total 5707.83 fits. Since it is <= 5750.0 MB, it keeps 0.0 penalty
+    eval_high = evaluate_sizing(cand, hw, context_tokens=16384, budget_ceiling_override_mb=6000.0)
+    assert eval_high.fits is True
+    assert eval_high.budget_ceiling_mb == 6000.0
+    assert eval_high.ram_penalty == 0.0
+
+
+def test_calculate_scenario_budgets_default_audit():
+    """Verify calculate_scenario_budgets with process_summary=None runs audit_active_processes()."""
+    hw = HardwareProfile(
+        os_name="windows",
+        cpu_brand="Intel Core i7",
+        cpu_arch="x86_64",
+        physical_cores=4,
+        logical_cores=8,
+        has_avx512=True,
+        has_avx2=True,
+        has_neon=False,
+        ram_total_mb=16384.0,
+        ram_avail_mb=8000.0,
+        disk_free_gb=100.0,
+        gpus=[],
+        bandwidth_gb_s=30.0,
+        backend_target="cpu",
+    )
+    budgets = calculate_scenario_budgets(hw, process_summary=None)
+    assert len(budgets) == 3
+    for scenario in ConcurrencyScenario:
+        assert scenario in budgets
+        assert budgets[scenario].budget_ceiling_mb > 0
+        assert budgets[scenario].available_ram_mb == 8000.0
+
 

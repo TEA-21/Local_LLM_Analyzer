@@ -426,5 +426,146 @@
     "citation_doi": "10.48550/arXiv.2501.12948",
     "paper_url": "https://arxiv.org/abs/2501.12948",
     "license": "apache-2.0"
+  },
+  {
+    "repo_id": "bartowski/Meta-Llama-3.1-8B-Instruct-GGUF",
+    "filename": "Meta-Llama-3.1-8B-Instruct-Q3_K_M.gguf",
+    "quant_method": "Q3_K_M",
+    "param_count_billions": 8.0,
+    "active_weight_ratio": 1.0,
+    "size_mb": 3740.0,
+    "context_window": 32768,
+    "arch_type": "dense",
+    "num_layers": 32,
+    "layers": 32,
+    "num_kv_heads": 8,
+    "kv_heads": 8,
+    "head_dim": 128,
+    "benchmarks": {
+      "eq_bench": 74.8,
+      "mt_bench_writing": 8.6,
+      "arena_elo": 1200.0
+    },
+    "measured_benchmarks": [
+      "eq_bench",
+      "mt_bench_writing",
+      "arena_elo"
+    ],
+    "proof_justification": "High-capability 8B creative writing assistant running in an optimized 3.7GB memory footprint with 74.8 EQ-Bench score.",
+    "citation_doi": "10.48550/arXiv.2407.21783",
+    "paper_url": "https://arxiv.org/abs/2407.21783",
+    "license": "llama3.1"
+  },
+  {
+    "repo_id": "Qwen/Qwen2.5-7B-Instruct-GGUF",
+    "filename": "qwen2.5-7b-instruct-q3_k_m.gguf",
+    "quant_method": "Q3_K_M",
+    "param_count_billions": 7.6,
+    "active_weight_ratio": 1.0,
+    "size_mb": 3560.0,
+    "context_window": 32768,
+    "arch_type": "dense",
+    "num_layers": 28,
+    "layers": 28,
+    "num_kv_heads": 4,
+    "kv_heads": 4,
+    "head_dim": 128,
+    "benchmarks": {
+      "ifeval": 80.4,
+      "mmlu_pro": 56.2,
+      "arena_elo": 1205.0
+    },
+    "measured_benchmarks": [
+      "ifeval",
+      "mmlu_pro",
+      "arena_elo"
+    ],
+    "proof_justification": "Optimized 7B summarization engine scoring 80.4% IFEval and 56.2% MMLU-Pro under a lean 3.5GB footprint.",
+    "citation_doi": "10.48550/arXiv.2412.15115",
+    "paper_url": "https://arxiv.org/abs/2412.15115",
+    "license": "apache-2.0"
+  },
+  {
+    "repo_id": "Qwen/Qwen2.5-14B-Instruct-GGUF",
+    "filename": "qwen2.5-14b-instruct-q3_k_m.gguf",
+    "quant_method": "Q3_K_M",
+    "param_count_billions": 14.7,
+    "active_weight_ratio": 1.0,
+    "size_mb": 6980.0,
+    "context_window": 32768,
+    "arch_type": "dense",
+    "num_layers": 48,
+    "layers": 48,
+    "num_kv_heads": 8,
+    "kv_heads": 8,
+    "head_dim": 128,
+    "benchmarks": {
+      "ifeval": 85.1,
+      "mmlu_pro": 64.8,
+      "arena_elo": 1260.0
+    },
+    "measured_benchmarks": [
+      "ifeval",
+      "mmlu_pro",
+      "arena_elo"
+    ],
+    "proof_justification": "Heavyweight 14B summarizer achieving 85.1% IFEval and 64.8% MMLU-Pro for dedicated high-RAM workstations.",
+    "citation_doi": "10.48550/arXiv.2412.15115",
+    "paper_url": "https://arxiv.org/abs/2412.15115",
+    "license": "apache-2.0"
+  },
+  {
+    "repo_id": "unsloth/DeepSeek-R1-Distill-Qwen-7B-GGUF",
+    "filename": "DeepSeek-R1-Distill-Qwen-7B-Q3_K_M.gguf",
+    "quant_method": "Q3_K_M",
+    "param_count_billions": 7.6,
+    "active_weight_ratio": 1.0,
+    "size_mb": 3560.0,
+    "context_window": 32768,
+    "arch_type": "dense",
+    "num_layers": 28,
+    "layers": 28,
+    "num_kv_heads": 4,
+    "kv_heads": 4,
+    "head_dim": 128,
+    "benchmarks": {
+      "gsm8k": 91.4,
+      "math": 77.5
+    },
+    "measured_benchmarks": [
+      "gsm8k",
+      "math"
+    ],
+    "proof_justification": "Distilled reasoning powerhouse scoring 91.4% GSM8K and 77.5% MATH within an optimized 3.5GB memory budget.",
+    "citation_doi": "10.48550/arXiv.2501.12948",
+    "paper_url": "https://arxiv.org/abs/2501.12948",
+    "license": "apache-2.0"
+  },
+  {
+    "repo_id": "unsloth/DeepSeek-R1-Distill-Qwen-14B-GGUF",
+    "filename": "DeepSeek-R1-Distill-Qwen-14B-Q3_K_M.gguf",
+    "quant_method": "Q3_K_M",
+    "param_count_billions": 14.7,
+    "active_weight_ratio": 1.0,
+    "size_mb": 6980.0,
+    "context_window": 32768,
+    "arch_type": "dense",
+    "num_layers": 48,
+    "layers": 48,
+    "num_kv_heads": 8,
+    "kv_heads": 8,
+    "head_dim": 128,
+    "benchmarks": {
+      "gsm8k": 93.9,
+      "math": 80.2
+    },
+    "measured_benchmarks": [
+      "gsm8k",
+      "math"
+    ],
+    "proof_justification": "Massive 14B distilled reasoning model scoring 93.9% GSM8K and 80.2% MATH for high-performance systems.",
+    "citation_doi": "10.48550/arXiv.2501.12948",
+    "paper_url": "https://arxiv.org/abs/2501.12948",
+    "license": "apache-2.0"
   }
 ]

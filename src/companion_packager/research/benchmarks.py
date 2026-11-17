@@ -207,6 +207,22 @@ def impute_missing_benchmarks(
     return resolved
 
 
+def resolve_custom_domain(custom_intent: Optional[str]) -> str:
+    """Resolve freeform custom intent string into one of the canonical domain keys."""
+    if not custom_intent:
+        return "general_desktop"
+    tokens = set(custom_intent.lower().replace("-", " ").replace("_", " ").split())
+    if tokens & {"code", "coding", "dev", "python", "javascript", "typescript", "c++", "rust", "go", "sql", "bug", "git", "ast"}:
+        return "coding"
+    if tokens & {"math", "reasoning", "logic", "calc", "gsm8k", "theorem", "proof"}:
+        return "reasoning_math"
+    if tokens & {"write", "creative", "prose", "story", "novel", "roleplay", "dialogue"}:
+        return "creative_writing"
+    if tokens & {"summary", "summarize", "digest", "brief", "pdf", "document"}:
+        return "summarization"
+    return "general_desktop"
+
+
 def normalize_benchmarks(
     benchmarks: Dict[str, float],
     task: Optional[str] = None,
@@ -214,6 +230,7 @@ def normalize_benchmarks(
     is_math_model: bool = False,
     is_prose_model: bool = False,
     is_summary_model: bool = False,
+    custom_intent: Optional[str] = None,
 ) -> float:
     """Normalize benchmark scores into [0.0, 1.0] across multi-domain tasks.
 
@@ -223,11 +240,15 @@ def normalize_benchmarks(
         - general_desktop: 0.60 * (IFEval / 100.0) + 0.40 * EloNorm
         - reasoning_math: 0.50 * (GSM8K / 100.0) + 0.30 * (MATH / 100.0) + 0.20 * (OpenLLM / 100.0)
         - summarization: 0.50 * (MMLU-Pro / 100.0) + 0.50 * EloNorm
-        - custom: 0.60 * (IFEval / 100.0) + 0.40 * EloNorm
+        - custom: dynamically maps to resolved custom domain (default: general_desktop)
     """
     canon = _canonicalize_benchmarks(benchmarks)
 
-    t = task.lower().strip() if task else "general"
+    raw_task = task.lower().strip() if task else "general"
+    if raw_task == "custom":
+        t = resolve_custom_domain(custom_intent)
+    else:
+        t = raw_task
 
     # Legacy reasoning formula backward compatibility
     if t == "reasoning":

@@ -13,6 +13,7 @@ from companion_packager.research.benchmarks import (
     impute_missing_benchmarks,
     load_benchmarks_cache,
     normalize_benchmarks,
+    resolve_custom_domain,
 )
 from companion_packager.research.citations import (
     generate_proof_citation,
@@ -415,7 +416,7 @@ def test_domain_affinity_bonus_and_engine_bonus():
 
     # 5. Summarization task: Summary model (Qwen2.5-7B) gets domain bonus (0.6300 + 0.10 = 0.7300)
     scs_sum = rank_candidates(all_cands, hw_cpu_avx512, UserNeeds(task="summarization", priority="balanced"))
-    cand_qwen_sum = next(s for s in scs_sum if "Qwen2.5-7B-Instruct" in s.candidate.repo_id)
+    cand_qwen_sum = next(s for s in scs_sum if "Qwen2.5-7B-Instruct" in s.candidate.repo_id and s.candidate.quant_method == "Q4_K_M")
     assert cand_qwen_sum.task_fit_score > 0.70
 
 
@@ -483,3 +484,160 @@ def test_backend_aware_target_tok_sec():
     # CPU quality target: 5.0 tok/s. Latency ~ 7.68 / 5.0 >= 1.0 -> 1.0.
     sc_cpu_quality = rank_candidates([model], hw_cpu, UserNeeds(task="coding", priority="quality"))[0]
     assert sc_cpu_quality.latency_score == 1.0
+
+
+# ==============================================================================
+# 8. Custom Intent Domain Resolution & Dynamic Routing Tests
+# ==============================================================================
+
+def test_resolve_custom_domain():
+    """Verify keyword resolution across canonical domain archetypes."""
+    # Empty / None fallbacks
+    assert resolve_custom_domain(None) == "general_desktop"
+    assert resolve_custom_domain("") == "general_desktop"
+    assert resolve_custom_domain("   ") == "general_desktop"
+    assert resolve_custom_domain("unmatched random greeting") == "general_desktop"
+
+    # Coding keywords
+    assert resolve_custom_domain("coding with python ast and git") == "coding"
+    assert resolve_custom_domain("dev in rust or c++") == "coding"
+    assert resolve_custom_domain("sql database query bug fix") == "coding"
+    assert resolve_custom_domain("typescript and javascript dev") == "coding"
+
+    # Reasoning / Math keywords
+    assert resolve_custom_domain("prove math theorem and logic") == "reasoning_math"
+    assert resolve_custom_domain("complex calc and gsm8k proof") == "reasoning_math"
+
+    # Creative Writing keywords
+    assert resolve_custom_domain("write creative novel prose") == "creative_writing"
+    assert resolve_custom_domain("dialogue and story roleplay") == "creative_writing"
+
+    # Summarization keywords
+    assert resolve_custom_domain("summarize pdf document") == "summarization"
+    assert resolve_custom_domain("daily news digest and brief summary") == "summarization"
+
+
+def test_custom_intent_benchnorm_dynamic_routing():
+    """Verify that normalize_benchmarks with task='custom' dynamically routes to the resolved domain formula."""
+    benchmarks = {
+        "swe_bench_verified": 40.0,
+        "humaneval": 80.0,
+        "eq_bench": 75.0,
+        "mt_bench_writing": 8.5,
+        "ifeval": 80.0,
+        "arena_elo": 1250.0,
+        "gsm8k": 90.0,
+        "math": 70.0,
+        "openllm_v2": 70.0,
+        "mmlu_pro": 60.0,
+    }
+
+    # 1. Custom coding intent matches coding BenchNorm
+    score_custom_code = normalize_benchmarks(
+        benchmarks, task="custom", custom_intent="coding with python ast"
+    )
+    score_coding = normalize_benchmarks(benchmarks, task="coding")
+    assert pytest.approx(score_custom_code, abs=1e-3) == score_coding
+    assert pytest.approx(score_custom_code, abs=1e-3) == 0.800
+
+    # 2. Custom math intent matches reasoning_math BenchNorm
+    score_custom_math = normalize_benchmarks(
+        benchmarks, task="custom", custom_intent="math reasoning and logic proof"
+    )
+    score_math = normalize_benchmarks(benchmarks, task="reasoning_math")
+    assert pytest.approx(score_custom_math, abs=1e-3) == score_math
+    assert pytest.approx(score_custom_math, abs=1e-3) == 0.800
+
+    # 3. Custom prose intent matches creative_writing BenchNorm
+    score_custom_prose = normalize_benchmarks(
+        benchmarks, task="custom", custom_intent="write creative novel story"
+    )
+    score_prose = normalize_benchmarks(benchmarks, task="creative_writing")
+    assert pytest.approx(score_custom_prose, abs=1e-3) == score_prose
+    assert pytest.approx(score_custom_prose, abs=1e-3) == 0.780
+
+    # 4. Custom summary intent matches summarization BenchNorm
+    score_custom_summary = normalize_benchmarks(
+        benchmarks, task="custom", custom_intent="summarize document and brief pdf"
+    )
+    score_sum = normalize_benchmarks(benchmarks, task="summarization")
+    assert pytest.approx(score_custom_summary, abs=1e-3) == score_sum
+    assert pytest.approx(score_custom_summary, abs=1e-3) == 0.675
+
+    # 5. Default custom without intent falls back to general_desktop
+    score_custom_default = normalize_benchmarks(
+        benchmarks, task="custom", custom_intent=None
+    )
+    score_desktop = normalize_benchmarks(benchmarks, task="general_desktop")
+    assert pytest.approx(score_custom_default, abs=1e-3) == score_desktop
+    assert pytest.approx(score_custom_default, abs=1e-3) == 0.780
+
+
+def test_custom_intent_proof_citation():
+    """Verify generate_proof_citation dynamically maps task='custom' using custom_intent."""
+    candidate = CandidateModel(
+        repo_id="Qwen/Qwen2.5-Coder-7B-Instruct-GGUF",
+        filename="qwen2.5-coder-7b-instruct-q4_k_m.gguf",
+        quant_method="Q4_K_M",
+        param_count_billions=7.61,
+        size_mb=4680.0,
+        benchmarks={
+            "swe_bench_verified": 39.8,
+            "humaneval": 88.4,
+            "openllm_v2": 67.2,
+            "arena_elo": 1220.0,
+        },
+        measured_benchmarks=[
+            "swe_bench_verified",
+            "humaneval",
+            "openllm_v2",
+            "arena_elo",
+        ],
+        proof_justification="Industry standard 7B coder achieving 39.8% SWE-bench Verified.",
+    )
+
+    evaluation = SizingEvaluation(
+        fits=True,
+        weights_mb=4680.0,
+        kv_cache_mb=500.0,
+        overhead_mb=200.0,
+        total_ram_mb=5380.0,
+        budget_ceiling_mb=8192.0,
+        tokens_per_second=18.5,
+        ram_penalty=0.0,
+    )
+
+    # Custom task with python intent maps to coding Pillar 1
+    citation = generate_proof_citation(
+        candidate=candidate,
+        task="custom",
+        eval_result=evaluation,
+        budget_mb=8192.0,
+        custom_intent="coding with python ast",
+    )
+    assert citation.task_benchmark_name == "SWE-bench Verified"
+    assert citation.task_benchmark_score == 39.8
+    assert citation.is_measured is True
+
+    card_md = generate_proof_citation_card(citation)
+    assert "SWE-bench Verified = `39.8` [Measured]" in card_md
+
+
+def test_benchmarks_cache_20_models_all_valid():
+    """Verify that all 20 models in benchmarks_cache.json load and validate as CandidateModel instances."""
+    models = load_benchmarks_cache()
+    assert len(models) == 20
+    for m in models:
+        assert isinstance(m, CandidateModel)
+        assert m.repo_id
+        assert m.filename
+        assert m.quant_method
+        assert m.param_count_billions > 0.0
+        assert m.size_mb > 0.0
+        assert m.num_layers > 0
+        assert m.num_kv_heads > 0
+        assert m.head_dim > 0
+        assert len(m.benchmarks) > 0
+        assert len(m.measured_benchmarks) > 0
+        assert m.proof_justification
+        assert m.license

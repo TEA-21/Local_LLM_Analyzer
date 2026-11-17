@@ -5,6 +5,7 @@ from companion_packager.research.benchmarks import (
     impute_missing_benchmarks,
     load_benchmarks_cache,
     normalize_benchmarks,
+    resolve_custom_domain,
 )
 from companion_packager.research.citations import (
     generate_citation_card,
@@ -25,6 +26,7 @@ from companion_packager.research.hf_client import (
 __all__ = [
     "load_benchmarks_cache",
     "normalize_benchmarks",
+    "resolve_custom_domain",
     "impute_missing_benchmarks",
     "calculate_elo_norm",
     "get_model_candidates",

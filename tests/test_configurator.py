@@ -8,10 +8,16 @@ import pytest
 
 from companion_packager.installer.configurator import (
     create_desktop_shortcut,
+    generate_config,
     inject_agent_companion_config,
     resolve_companion_path,
 )
-from companion_packager.schemas import CandidateModel, HardwareProfile
+from companion_packager.schemas import (
+    CandidateModel,
+    ConcurrencyScenario,
+    ConcurrencyScenarioBudget,
+    HardwareProfile,
+)
 
 
 @pytest.fixture
@@ -264,7 +270,7 @@ def test_agent_companion_env_backends_and_context_lengths(tmp_path):
 
 
 def test_start_companion_py_memory_guard_check(tmp_path, mock_hardware, mock_model):
-    """Verify start_companion.py contains HardwareProfiler RAM_CEILING_MB <= 6144.0 assertion."""
+    """Verify start_companion.py contains HardwareProfiler RAM_CEILING_MB <= 6144.0 assertion and free RAM warning."""
     paths = inject_agent_companion_config(
         bundle_dir=tmp_path,
         selected_model=mock_model,
@@ -273,4 +279,46 @@ def test_start_companion_py_memory_guard_check(tmp_path, mock_hardware, mock_mod
     py_text = paths["py"].read_text(encoding="utf-8")
     assert "from agent_tooling.hardware_profiler.memory_guard import HardwareProfiler" in py_text
     assert "assert profiler.RAM_CEILING_MB <= 6144.0" in py_text
+    assert "if profiler.AVAILABLE_RAM_MB < (MAX_RAM_MB * 0.70):" in py_text
+    assert "logger.warning(\"Current free RAM lower than scenario threshold. Consider switching to Parallel mode.\")" in py_text
     assert "os.chdir(install_root)" in py_text
+
+
+def test_generate_config_with_scenario_budget(tmp_path, mock_model):
+    """Verify generate_config sets AGENT_COMPANION_MAX_RAM_MB from scenario budget and preserves 6144.0 CPU ceiling."""
+    cpu_hw = HardwareProfile(
+        os_name="windows",
+        cpu_brand="Intel Core i7-1165G7",
+        cpu_arch="x86_64",
+        physical_cores=4,
+        logical_cores=8,
+        has_avx512=True,
+        has_avx2=True,
+        has_neon=False,
+        ram_total_mb=16384.0,
+        ram_avail_mb=12000.0,
+        disk_free_gb=100.0,
+        gpus=[],
+        bandwidth_gb_s=30.0,
+        backend_target="cpu",
+    )
+
+    scenario_budget = ConcurrencyScenarioBudget(
+        scenario=ConcurrencyScenario.PARALLEL,
+        title="Parallel Coexistence",
+        description="Low interference budget",
+        available_ram_mb=4000.0,
+        reclaimable_ram_mb=0.0,
+        budget_ceiling_mb=3000.0,
+    )
+
+    paths = generate_config(
+        bundle_dir=tmp_path,
+        selected_model=mock_model,
+        hardware=cpu_hw,
+        scenario=scenario_budget,
+    )
+
+    env_text = paths["env"].read_text(encoding="utf-8")
+    assert "AGENT_COMPANION_MAX_RAM_MB=3000.0" in env_text
+    assert "AGENT_COMPANION_RAM_CEILING_MB=6144.0" in env_text
